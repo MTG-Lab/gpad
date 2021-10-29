@@ -1,0 +1,40 @@
+conda create -n ShinyOMIM
+conda activate ShinyOMIM
+conda install -c conda-forge autopep8
+conda install -c conda-forge cffi
+conda install -c conda-forge constantly
+conda install -c conda-forge cryptography
+conda install -y -c conda-forge cssselect
+conda install -y -c conda-forge dateparser
+conda install -y -c conda-forge mongoengine
+conda install -y -c conda-forge numpy
+conda install -y -c conda-forge pandas
+conda install -y -c conda-forge python-dotenv
+conda install -y -c conda-forge requests
+conda install -y -c conda-forge spacy
+python -m spacy download en_core_web_sm
+
+## install mongodb on Ubuntu 20.04
+### https://www.digitalocean.com/community/tutorials/how-to-install-mongodb-on-ubuntu-20-04
+curl -fsSL https://www.mongodb.org/static/pgp/server-4.4.asc | sudo apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list
+sudo apt update
+sudo apt install mongodb-org
+sudo systemctl start mongod.service
+sudo systemctl status mongod
+sudo systemctl enable mongod
+
+
+# In R
+> reticulate::conda_list()
+             name                                               python
+1            DPED            /home/mtg/miniconda3/envs/DPED/bin/python
+2       ShinyOMIM       /home/mtg/miniconda3/envs/ShinyOMIM/bin/python
+3          filteR          /home/mtg/miniconda3/envs/filteR/bin/python
+4            mity            /home/mtg/miniconda3/envs/mity/bin/python
+5         python2         /home/mtg/miniconda3/envs/python2/bin/python
+6    r-reticulate    /home/mtg/miniconda3/envs/r-reticulate/bin/python
+7 racingBarCharts /home/mtg/miniconda3/envs/racingBarCharts/bin/python
+8         ranikay         /home/mtg/miniconda3/envs/ranikay/bin/python
+9            umap            /home/mtg/miniconda3/envs/umap/bin/python
+> reticulate::use_condaenv("ShinyOMIM")

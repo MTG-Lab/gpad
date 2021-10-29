@@ -1,0 +1,175 @@
+
+// EARLIEST PHENOTYPE EVIDENCES VIEW
+// =================================
+
+[{$unwind: {
+  path: '$phenotypes'
+}}, {$set: {
+  phenotype_mim: '$phenotypes.mim_number',
+  phenotype: '$phenotypes.phenotype',
+  allelic_variants: '$phenotypes.allelic_variants',
+  phenotype_publication_evidences: '$phenotypes.publication_evidences',
+  phenotype_specific_animal_models: '$phenotypes.animal_models',
+  matcher_platforms: '$phenotypes.matcher_platforms',
+  population: '$phenotypes.populations',
+  cohorts: {
+    $ifNull: [
+      {
+        $filter: {
+          input: '$phenotypes.cohorts',
+          as: 'c',
+          cond: {
+            $eq: [
+              '$$c.source',
+              'gene'
+            ]
+          }
+        }
+      },
+      '$phenotypes.cohorts'
+    ]
+  }
+}}, {$set: {
+  earliest_phenotype_association: {
+    $let: {
+      vars: {
+        earliest_year: {
+          $min: '$phenotypes.publication_evidences.year'
+        }
+      },
+      'in': {
+        $arrayElemAt: [
+          {
+            $filter: {
+              input: '$phenotypes.publication_evidences',
+              cond: {
+                $eq: [
+                  '$$this.year',
+                  '$$earliest_year'
+                ]
+              }
+            }
+          },
+          0
+        ]
+      }
+    }
+  },
+  earliest_cohort: {
+    $let: {
+      vars: {
+        earliest_year: {
+          $min: '$cohorts.publication_evidence.year'
+        }
+      },
+      'in': {
+        $arrayElemAt: [
+          {
+            $filter: {
+              input: '$cohorts',
+              cond: {
+                $eq: [
+                  '$$this.publication_evidence.year',
+                  '$$earliest_year'
+                ]
+              }
+            }
+          },
+          0
+        ]
+      }
+    }
+  },
+  earliest_phenotype_specific_animal_model: {
+    $let: {
+      vars: {
+        earliest_year: {
+          $min: '$phenotypes.animal_models.publication_evidence.year'
+        }
+      },
+      'in': {
+        $arrayElemAt: [
+          {
+            $filter: {
+              input: '$phenotypes.animal_models',
+              cond: {
+                $eq: [
+                  '$$this.publication_evidence.year',
+                  '$$earliest_year'
+                ]
+              }
+            }
+          },
+          0
+        ]
+      }
+    }
+  }
+}}, {$set: {
+  year_created: {
+    $year: '$date_created'
+  },
+  year_updated: {
+    $year: '$date_updated'
+  },
+  earliest_phenotype_year: {
+    $min: '$phenotypes.publication_evidences.year'
+  },
+  earliest_phenotype_animal_year: {
+    $min: '$phenotype_specific_animal_models.publication_evidence.year'
+  },
+  earliest_animal_year: {
+    $min: '$animal_models.publication_evidence.year'
+  },
+  earliest_matcher_year: {
+    $min: '$matcher_platforms.publication_evidence.year'
+  },
+  animal_model_names: '$animal_models.animal_name',
+  phenotype_specific_animal_model_names: '$phenotype_specific_animal_models.animal_name',
+  matcher_platform_names: '$matcher_platforms.platform_name'
+}}, {$project: {
+  _id: 0,
+  date_created: 1,
+  date_updated: 1,
+  mtg_created: 1,
+  mtg_updated: 1,
+  year_created: 1,
+  year_updated: 1,
+  gene_mim_id: 1,
+  phenotype_mim: 1,
+  phenotype: 1,
+  allelic_variants: 1,
+  earliest_phenotype_year: 1,
+  earliest_phenotype_animal_year: 1,
+  earliest_matcher_year: 1,
+  earliest_animal_year: 1,
+  animal_model_names: 1,
+  phenotype_specific_animal_model_names: 1,
+  matcher_platform_names: 1,
+  population: 1,
+  earliest_phenotype_association: 1,
+  earliest_phenotype_specific_animal_model: 1,
+  earliest_cohort: 1
+}}]
+
+
+
+
+// Latest EVIDENCES
+// ================
+[{$sort: {
+  gene_mim_id: 1,
+  phenotype_mim: 1,
+  date_updated: -1,
+  mtg_updated: -1
+}}, {$group: {
+  _id: {
+    gene: '$gene_mim_id',
+    phenotype: '$phenotype_mim'
+  },
+  document: {
+    $first: '$$ROOT'
+  }
+}}, {$replaceRoot: {
+  newRoot: '$document'
+}}]
