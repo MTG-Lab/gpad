@@ -396,7 +396,6 @@ def extract_and_save(entry, item):
                                         population.append(ent.text)
                                 
                                 # Detecting publication evidence
-                                # TODO: perform nearsest to the phenotype ID mention
                                 av['publication_evidences'] = []
                                 pub_ref_ids = original_study_finder(doc)
                                 publication_matches = re.finditer(publication_regex, text)

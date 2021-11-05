@@ -76,7 +76,6 @@ def ignore_existing_genes(all_gene_ids):
     return genes_to_extract
 
 def extract_gene_info(genes_to_extract, entry_class=GeneEntry):
-    print(f"Total {len(genes_to_extract)} will be collected from API")
     gene_count = len(genes_to_extract)
     for i in trange(int(math.ceil(gene_count/OMIM_RESPONSE_LIMIT)), desc='overall'):
         # print(f"Page {i}")
@@ -130,18 +129,17 @@ def extract_gene_info(genes_to_extract, entry_class=GeneEntry):
 def extract_from_omim(init):
     date_from = "2021/04/13"  # "to grab all use: 0000"
     date_to = "*"  # "*" = now
-    # if init:
-    entry_class = GeneEntry
-    #     all_gene_ids = get_gene_ids(date_from, date_to)
-    #     genes_to_extract = ignore_existing_genes(all_gene_ids)
-    #     extract_gene_info(genes_to_extract, entry_class)
-    # else:
-    #     entry_class = UpdateHistory
-    if GeneEntry.objects:
-        last_update_done_on = GeneEntry.objects().order_by('-dateUpdated').only('dateUpdated').first()['dateUpdated']
-        date_from = last_update_done_on.strftime("%Y/%m/%d")        
-    all_gene_ids = get_gene_ids(date_from, date_to)
-    extract_gene_info(all_gene_ids, entry_class)
+    
+    if init:
+        all_gene_ids = get_gene_ids('0000', date_to)
+        genes_to_extract = ignore_existing_genes(all_gene_ids)
+    else:
+        if GeneEntry.objects:
+            last_update_done_on = GeneEntry.objects().order_by('-dateUpdated').only('dateUpdated').first()['dateUpdated']
+            date_from = last_update_done_on.strftime("%Y/%m/%d")        
+        genes_to_extract = get_gene_ids(date_from, date_to)
+    print(f"Total {len(genes_to_extract)} will be collected from API")
+    extract_gene_info(genes_to_extract, GeneEntry)
 
 if __name__ == '__main__':
     extract_from_omim()

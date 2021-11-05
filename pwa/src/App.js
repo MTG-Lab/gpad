@@ -59,17 +59,17 @@ function App() {
             <ModelOrganismTrendView />
           </Grid> */}
           <Grid item xs={10}>
-            <h2>Use of model organisms in assocation making</h2>
+            <h2>Use of model organisms in association making</h2>
             <ModelOrganismYearlyTrendView />
           </Grid>
           <Grid item xs={10}>
-            <h2>Number of unrelated patients studied in assocation making</h2>
+            <h2>Number of unrelated patients studied in association making</h2>
             <CohortCountView />
           </Grid>
-          <Grid item xs={10}>
+          {/* <Grid item xs={10}>
             <h2>Studied populations in assocation making</h2>
             <PopulationTrendView />
-          </Grid>
+          </Grid> */}
         </Grid>
       </div>
       <br></br>
