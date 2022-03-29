@@ -7,7 +7,7 @@ RUN npm ci
 RUN npm install react-scripts@3.4.1 -g
 COPY ./pwa ./
 RUN npm run build
-RUN mkdir node_modules/.cache && chmod -R 777 node_modules/.cache
+RUN mkdir -p node_modules/.cache && chmod -R 777 node_modules/.cache
 
 # production environment
 FROM nginx:stable-alpine

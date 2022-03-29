@@ -104,6 +104,7 @@ celerybeat-schedule
 
 # Environments
 .env
+.flaskenv
 .venv
 env/
 venv/
@@ -135,3 +136,4 @@ logs/*
 gene_discovery/data/*
 db/*
 reports/*
+.flaskenv

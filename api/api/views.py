@@ -2,6 +2,7 @@ import datetime
 import logging
 from typing import DefaultDict
 
+from flask_cors import CORS
 from bson.json_util import dumps, loads
 from flask import Blueprint, current_app, jsonify, request
 from flask_restful import Api, Resource

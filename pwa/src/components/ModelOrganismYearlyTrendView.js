@@ -15,7 +15,7 @@ export default function ModelOrganismYearlyTrendView() {
     // this useEffect will run once
     // similar to componentDidMount()
     useEffect(() => {
-      fetch("http://"+process.env.REACT_APP_API_HOST_URL+":5555/api/v1/mo_yearly_trend")
+      fetch("http://206.12.96.161:5555/api/v1/mo_yearly_trend")
         .then(res => res.json())
         .then(
           (result) => {
