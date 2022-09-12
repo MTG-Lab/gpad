@@ -37,10 +37,10 @@ animal_models = [
     "Saccharomyces cerevisiae", "S. cerevisiae", "Yeast",
     "Pisum sativum", "Pea plant",
     "Drosophila melanogaster", "D. melanogaster", "Drosophila", "Fruit fly",
-    "Caenorhabditis elegans", "C. elegans", "Roundworm", "worm",
+    "Caenorhabditis elegans", "C. elegans", "Roundworm", "worm", "worms",
     "Danio rerio", "Zebra fish", "zebrafish",
     "Mus musculus", "mouse", "mice",
-    "Rattus norvegicus", "rat", "rodent", "avian", "Xenopus", "cattle", "bull", "chicken", "dog"
+    "Rattus norvegicus", "rat", "rats", "rodent", "avian", "Xenopus", "cattle", "bull", "chicken", "dog"
 ] # TODO: Plural forms
 ignore_phenotypes = ['[', '{', '?', 'susceptibility', 'modifier']
 phenotype_inheritence_types = [
@@ -270,6 +270,7 @@ def get_cohorts(text, reference_list=None, source='gene'):
 def extract_and_save(entry, item):
     item['_id'] = entry._id
     item["gene_mim_id"] = entry.mimNumber
+    item['prefix'] = entry.prefix
     if 'geneMap' in entry and 'geneSymbols' in entry.geneMap:
         item["gene_symbols"] = entry.geneMap['geneSymbols']
     if 'geneMap' in entry and 'geneName' in entry.geneMap:
@@ -296,6 +297,9 @@ def extract_and_save(entry, item):
     # Known Genotype-Phenotype relationships
     phenos = []
     _known_phenos = []
+    ## TODOS
+    ## ADD PREFIX FILTER
+    ## 
     if entry.geneMap is not None and 'phenotypeMapList' in entry.geneMap:
         known_phenotypes = entry.geneMap['phenotypeMapList']
         for p in known_phenotypes:
@@ -333,11 +337,14 @@ def extract_and_save(entry, item):
                         pheno_mim = p['phenotypeMap']['phenotypeMimNumber']
                         pheno['mim_number'] = pheno_mim
                         _known_phenos.append(pheno_mim)
-
+                    if 'phenotypeMappingKey' in p['phenotypeMap']:
+                        pheno['mapping_key'] = p['phenotypeMap']['phenotypeMappingKey']
                         ## Look at the phenotype for related information
                         pheno_entry = GeneEntry.objects(
                             mimNumber=pheno_mim).first()
                         if pheno_entry:
+                            pheno['prefix'] = pheno_entry['prefix']
+                            
                             # Detecting matcher platform from related phenotype entry
                             # NOTE: Might not be good for genetically heterogenious phenotypes
                             pheno_text = ' '.join(t['textSection']['textSectionContent'].replace(

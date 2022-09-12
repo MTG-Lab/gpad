@@ -62,7 +62,7 @@ class NewAssociations(Resource):
                 '$gte': date_from
             }
         })
-        logging.warning(updated_genes.count())
+        # logging.warning(updated_genes.count())
         # mims = [e['gene_mim_id'] for e in updated_genes]
         new_assoc = []
         for entry in updated_genes:
@@ -84,6 +84,12 @@ class Trend(Resource):
     def get(self):
         res = db.db.latest.aggregate([
             {
+                '$match': {
+                    'mapping_key': {
+                        '$ne': 2
+                    }   
+                }
+            },  {
                 '$set': {
                     '_id': {
                         '$concat': [
@@ -429,10 +435,10 @@ class ModelOrganismYearlyTrend(Resource):
             'Yeast': ["saccharomyces cerevisiae", "s. cerevisiae", "yeast"], 
             'Pea Plant': ["pisum sativum", "Pea plant"], 
             'Drosophila': ["drosophila melanogaster", "d. melanogaster", "drosophila", "fruit fly"], 
-            'C. elegans': ["caenorhabditis elegans", "c. elegans", "roundworm", "worm"], 
+            'C. elegans': ["caenorhabditis elegans", "c. elegans", "roundworm", "worm", "worms"], 
             'Zebrafish': ["danio rerio", "Zebra fish", "zebrafish"], 
             'Mouse': ["mus musculus", "mouse", "mice"],
-            'Rat/Rodents': ["rattus norvegicus", "rat", "rodent", "avian"],
+            'Rat/Rodents': ["rattus norvegicus", "rat", "rodent", "avian", "rats"],
             'Xenopus': ['xenopus'], 
             'Other': ["cattle", "bull", "chicken", "dog"]
         }
