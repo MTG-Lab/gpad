@@ -3,6 +3,7 @@ version: '3'
 
 services:  
   nodejs:
+    container_name: gpad_pwa
     build:
       context: .
       dockerfile: Dockerfile-node
@@ -16,12 +17,14 @@ services:
     environment:
       - CHOKIDAR_USEPOLLING=true
   api:
+    container_name: gpad_api
     image: api
     build: .
     command: gunicorn --reload -b 0.0.0.0:5555 api.wsgi:app
     env_file:
       - .env
     volumes:
+      - ./Makefile:/code/Makefile
       - ./api:/code/api
       - ./data:/code/data
       - ./logs:/code/logs

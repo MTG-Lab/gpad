@@ -1,5 +1,5 @@
 # pull official base image
-FROM node:alpine
+FROM node:13.12.0-alpine as build
 
 # set working directory
 WORKDIR /app
@@ -12,6 +12,7 @@ COPY ./pwa/package.json ./
 COPY ./pwa/package-lock.json ./
 RUN npm install
 RUN npm install react-scripts@3.4.1 -g
+RUN npx browserslist@latest --update-db
 
 RUN mkdir node_modules/.cache && chmod -R 777 node_modules/.cache
 
@@ -19,4 +20,6 @@ RUN mkdir node_modules/.cache && chmod -R 777 node_modules/.cache
 COPY . ./
 
 # start app
-CMD ["npm", "start"]
+# TODO: Remove "--openssl-legacy-provider" as it has known security issue. 
+# Check here why I added it and whay you should change when alternative comes: https://stackoverflow.com/questions/69692842/error-message-error0308010cdigital-envelope-routinesunsupported
+CMD ["npm", "--openssl-legacy-provider", "start"]

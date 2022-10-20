@@ -125,7 +125,7 @@ def extract_gene_info(genes_to_extract, entry_class=GeneEntry):
 
 
 @click.command()
-@click.option('--init', is_flag=True, help='Initialize/Freeze current OMIM data')
+@click.option('--init', is_flag=True, help='Initialize with current OMIM data')
 def extract_from_omim(init):
     date_from = "2021/04/13"  # "to grab all use: 0000"
     date_to = "*"  # "*" = now

@@ -61,8 +61,10 @@ class AllelicVariant(EmbeddedDocument):
     publication_evidences = EmbeddedDocumentListField(PublicationItem)
     
 class Phenotype(EmbeddedDocument):
+    prefix = StringField()
     mim_number = IntField()
     phenotype = StringField()
+    mapping_key = IntField()
     populations = ListField()
     allelic_variants = EmbeddedDocumentListField(AllelicVariant)
     cohorts = EmbeddedDocumentListField(CohortDescription)
@@ -73,6 +75,7 @@ class Phenotype(EmbeddedDocument):
 
 class CuratedGeneInfo(Document):
     _id = ObjectIdField()
+    prefix = StringField()
     gene_mim_id = IntField()
     gene_symbols = StringField()
     gene_name = StringField()

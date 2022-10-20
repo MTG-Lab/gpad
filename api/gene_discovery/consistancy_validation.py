@@ -12,14 +12,14 @@ import numpy as np
 from pathlib import Path
 import pprint
 from tqdm import tqdm
-from api.gene_discovery.settings import db, project_dir
+from api.gene_discovery.settings import db, data_dir
 
 # python -m api.gene_discovery.consistancy_validation
 
 # 3862 
 
 
-df = pd.read_csv(project_dir / '../data/Gene-RD-Provenance_V2.txt', sep='\t').dropna(subset=["ENSID"])
+df = pd.read_csv(data_dir / 'Gene-RD-Provenance_V2.1.txt', sep='\t').dropna(subset=["ENSID"])
 
 df['GPAD_pmid'] = 0
 result = {True: 0, False: 0, 'NA': 0}
@@ -33,20 +33,18 @@ for idx, row in tqdm(df.iterrows(), total=df.shape[0]):
             if db.earliest_phenotype_association.count_documents(query):
                 # print('asd')
                 entries = db.earliest_phenotype_association.find(query)
-                for entry in entries:
-                    if 'earliest_phenotype_association' in entry and 'pmid' in entry['earliest_phenotype_association']:
-                        pmid = entry['earliest_phenotype_association']['pmid']
+                for e in entries:
+                    if 'earliest_phenotype_association' in e and 'pmid' in e['earliest_phenotype_association']:
+                        pmid = e['earliest_phenotype_association']['pmid']
                         df.loc[idx,'GPAD_pmid'] = pmid
                         if not np.isnan(row['PMID Gene-disease']):
                             result[int(row['PMID Gene-disease']) == pmid] += 1
-                        elif 'earliest_phenotype_association' not in entry:
-                            result[True] += 1
                         else:
                             result[False] += 1
                     else:
                         result['NA'] += 1
                     # print(f"{int(row['PMID Gene-disease']) == pmid} : ({entry['gene_mim_id']} {entry['phenotype_mim']}) => {row['PMID Gene-disease']} {pmid}")
-df.to_csv(project_dir / '../data/Gene-RD-Provenance_V2_comparison2.tsv', sep='\t', index=False)
+# df.to_csv(data_dir / 'Gene-RD-Provenance_V2_comparison2.tsv', sep='\t', index=False)
 print(result)
 print(result[True]+result[False])
 print((100*result[True])/(result[True]+result[False]))

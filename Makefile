@@ -17,6 +17,9 @@ db-migrate:
 db-upgrade:
 	docker-compose exec web flask db upgrade
 
+data-init:
+	python -m api.gene_discovery.omim_api_extraction --init
+
 test:
 	docker-compose stop celery # stop celery to avoid conflicts with celery tests
 	docker-compose start rabbitmq redis # ensuring both redis and rabbitmq are started
