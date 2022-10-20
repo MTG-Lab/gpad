@@ -136,4 +136,3 @@ logs/*
 gene_discovery/data/*
 db/*
 reports/*
-.flaskenv

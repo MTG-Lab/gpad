@@ -35,7 +35,7 @@ function TrendView() {
       return (
         <ResponsiveContainer height={500} >
         <LineChart data={items}>
-          <Line type="monotone" dataKey="earliest_phenotype_association" name="GP Association" stroke="#ef1919" isAnimationActive='false' />
+          <Line type="monotone" dataKey="earliest_phenotype_association" name="GP Association" stroke="#ef1919" strokeWidth={3} isAnimationActive='false' />
           {/* <Line type="monotone" dataKey="earliest_av_association" name="Variant Association" stroke="#ffa4ff" /> */}
           <Line type="monotone" dataKey="earliest_cohort" name="GP using independent cohort" stroke="#4bbf30" activeDot={{ r: 8 }} />
           <Line type="monotone" dataKey="earliest_phenotype_specific_animal_model" name="GP using model organism" stroke="#396fe8" />
