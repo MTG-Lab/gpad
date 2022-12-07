@@ -35,7 +35,7 @@ services:
     ports:
       - "5555:5555"
   db:
-    image: mongo
+    image: mongo:5-focal
     restart: always
     env_file:
       - .env
@@ -43,20 +43,20 @@ services:
       - ./db:/data/db
     ports:
       - "27018:27017"  
-  rabbitmq:
-    image: rabbitmq
-  redis:
-    image: redis
-  celery:
-    image: api
-    build: .
-    command: "celery worker -A api.celery_app:app"
-    env_file:
-      - ./.flaskenv
-    volumes:
-      - .:/code
-    depends_on:
-      - rabbitmq
-    environment:
-      - CELERY_BROKER_URL=amqp://guest:guest@rabbitmq
-      - CELERY_RESULT_BACKEND_URL=redis://redis
+  # rabbitmq:
+  #   image: rabbitmq
+  # redis:
+  #   image: redis
+  # celery:
+  #   image: api
+  #   build: .
+  #   command: "celery worker -A api.celery_app:app"
+  #   env_file:
+  #     - ./.flaskenv
+  #   volumes:
+  #     - .:/code
+  #   depends_on:
+  #     - rabbitmq
+  #   environment:
+  #     - CELERY_BROKER_URL=amqp://guest:guest@rabbitmq
+  #     - CELERY_RESULT_BACKEND_URL=redis://redis
