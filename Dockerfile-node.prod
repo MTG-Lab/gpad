@@ -1,4 +1,4 @@
-FROM node:13.12.0-alpine as build
+FROM node:13.12.0-slim as build
 WORKDIR /app
 ENV PATH /app/node_modules/.bin:$PATH
 COPY ./pwa/package.json ./
@@ -7,7 +7,7 @@ RUN npm ci
 RUN npm install react-scripts@3.4.1 -g
 COPY ./pwa ./
 RUN npm run build
-RUN mkdir node_modules/.cache && chmod -R 777 node_modules/.cache
+RUN mkdir -p node_modules/.cache && chmod -R 777 node_modules/.cache
 
 # production environment
 FROM nginx:stable-alpine

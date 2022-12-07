@@ -15,7 +15,7 @@ export default function PopulationTrendView() {
     // this useEffect will run once
     // similar to componentDidMount()
     useEffect(() => {
-      fetch("http://"+process.env.REACT_APP_API_HOST_URL+":5555/api/v1/population_trend")
+      fetch("http://206.12.96.161:5555/api/v1/population_trend")
         .then(res => res.json())
         .then(
           (result) => {

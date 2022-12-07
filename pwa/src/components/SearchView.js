@@ -43,7 +43,7 @@ export function SearchResultView(props) {
   const [earliest_cohort, setEarliestCohort] = useState({ publication_evidence: { pmid: null, author: null, year: null } });
   const [earliest_phenotype_specific_animal_model, setEarliestPhenotypeSpecificAninamModel] = useState({ publication_evidence: { pmid: null, author: null, year: null } });
 
-  let url = "http://"+process.env.REACT_APP_API_HOST_URL+":5555/api/v1/search?q=" + props.query
+  let url = "http://206.12.96.161:5555/api/v1/search?q=" + props.query
   useEffect(() => {
     fetch(url)
       .then(res => res.json())

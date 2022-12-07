@@ -12,7 +12,7 @@ function ListView() {
     const [items, setItems] = useState([]);
     console.log(process.env)
     
-    let url = "http://"+process.env.REACT_APP_API_HOST_URL+":5555/api/v1/new/" + date_from.toISOString().slice(0,-1)
+    let url = "http://206.12.96.161:5555/api/v1/new/" + date_from.toISOString().slice(0,-1)
     // url += 'per_page=' + query.pageSize
     // url += '&page=' + (query.page + 1)
     // Note: the empty deps array [] means
