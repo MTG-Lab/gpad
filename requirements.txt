@@ -30,8 +30,10 @@ flask-jwt-extended
 marshmallow-sqlalchemy
 python-dotenv
 passlib
+pendulum
 apispec[yaml]
 apispec-webframeworks
 tox
+typer[all]
 celery[redis]>=5.0.0
 gunicorn

@@ -4,6 +4,7 @@ from mongoengine.fields import DateTimeField, DictField, EmbeddedDocumentField, 
 from .settings import *
 
 
+
 class GeneEntry(Document):
     _id = ObjectIdField()
     prefix = StringField()
@@ -21,8 +22,9 @@ class GeneEntry(Document):
     referenceList = ListField()
     geneMap = DictField()
     externalLinks = DictField()
-    mtgCreated = DateTimeField()    # when the entry was added in MTG database
-    mtgUpdated = DateTimeField()    # When the enrytry was last updated in MTG database
+    mtgCreated = DateTimeField()    # when the entry was added in GPAD database
+    mtgUpdated = DateTimeField()    # When the enrytry was last updated in GPAD database
+    meta = {'collection': 'gene_entry_1'}
 
 class PublicationItem(EmbeddedDocument):
     author = StringField()
@@ -66,12 +68,27 @@ class Phenotype(EmbeddedDocument):
     phenotype = StringField()
     mapping_key = IntField()
     populations = ListField()
+    inheritance = StringField()
     allelic_variants = EmbeddedDocumentListField(AllelicVariant)
     cohorts = EmbeddedDocumentListField(CohortDescription)
     animal_models = EmbeddedDocumentListField(AnimalModelsItem)
     matcher_platforms = EmbeddedDocumentListField(MatcherPlatform)
     publication_evidences = EmbeddedDocumentListField(PublicationItem)
+    omim_entry_fetched = DateTimeField()
 
+
+class GeneMap(Document):
+    _id = ObjectIdField()
+    mimNumber = IntField()
+    geneSymbols = StringField()
+    geneName = StringField()
+    geneIDs = StringField()
+    ensemblIDs = StringField()
+    approvedGeneSymbols = StringField()
+    phenotypes = EmbeddedDocumentListField(Phenotype)
+    omim_entry_fetched = DateTimeField()
+    gpad_created = DateTimeField()
+    gpad_updated = DateTimeField()
 
 class CuratedGeneInfo(Document):
     _id = ObjectIdField()

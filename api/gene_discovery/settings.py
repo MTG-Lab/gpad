@@ -22,6 +22,7 @@ dotenv.load_dotenv(dotenv_path)
 
 OMIM_API_KEY = os.getenv("OMIM_API_KEY")
 OMIM_RESPONSE_LIMIT = 20    # OMIM limit 20 entries per request
+OMIM_DAILY_LIMIT = 250
 NCBI_API_KEY = os.getenv("NCBI_API_KEY")
 
 log_fmt = "[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s - %(funcName)s() ] %(message)s"
