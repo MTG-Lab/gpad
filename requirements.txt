@@ -27,7 +27,9 @@ Flask-PyMongo
 flask-sqlalchemy
 flask-marshmallow
 flask-jwt-extended
+ipykernel
 marshmallow-sqlalchemy
+plotly
 python-dotenv
 passlib
 pendulum

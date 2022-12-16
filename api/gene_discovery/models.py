@@ -1,5 +1,5 @@
 from mongoengine.base.fields import ObjectIdField
-from mongoengine.document import Document, EmbeddedDocument
+from mongoengine.document import Document, EmbeddedDocument, DynamicDocument
 from mongoengine.fields import DateTimeField, DictField, EmbeddedDocumentField, EmbeddedDocumentListField, IntField, ListField, StringField
 from .settings import *
 
@@ -34,8 +34,8 @@ class PublicationItem(EmbeddedDocument):
 
 class MolGenItem(EmbeddedDocument):
     section_title = StringField()
-    referred_phenos = ListField()
-    publication_evidences = EmbeddedDocumentListField(PublicationItem)
+    referred_entry = StringField()
+    publication_evidences = EmbeddedDocumentField(PublicationItem)
     populations = ListField()
 
 
@@ -104,6 +104,7 @@ class CuratedGeneInfo(Document):
     edit_history = ListField()
     mtg_created = DateTimeField()    # when the entry was added in MTG database
     mtg_updated = DateTimeField()    # When the enrytry was last updated in MTG database
+    meta = {'collection': 'curated_gene_info_test'}
 
 class UpdateHistory(Document):
     """Track update made for OMIM entries
@@ -196,3 +197,12 @@ class UpdatedAssociationEvidences(Document):
     date_updated = DateTimeField()
     mtg_created = DateTimeField()    # when the entry was added in MTG database
     mtg_updated = DateTimeField()    # When the enrytry was last updated in MTG database
+    
+    
+class AssociationInformation(DynamicDocument):
+    """
+    Gene Phenotype Association object with association related information
+    """
+    gene_mim_id = IntField()
+    phenotype_mim = IntField()
+    meta = {'collection': 'latest'}

@@ -136,3 +136,4 @@ logs/*
 gene_discovery/data/*
 db/*
 reports/*
+/.vscode

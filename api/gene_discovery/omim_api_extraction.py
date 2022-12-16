@@ -7,31 +7,18 @@ Copyright (c) 2021 Tahsin Hassan Rahit, MTG-lab, University of Calgary
 
 You should have received a copy of the license along with this program.
 '''
-# python -m api.gene_discovery.omim_api_extraction
 
-import click
 import datetime
-import json
 import logging
-import re
 import math
-import time
-import pendulum
-from tqdm import tqdm, trange
-from pathlib import Path
 
-import random
-import pandas as pd
+import pendulum
 import requests
-import spacy
-from dateutil import parser
-from spacy import displacy
-from datetime import date, timedelta
-from spacy.matcher import PhraseMatcher
+from rich import print
+from tqdm import tqdm, trange
 
 from .models import *
 from .settings import *
-
 
 
 def omim_request(handle: str, params: dict):
@@ -41,26 +28,32 @@ def omim_request(handle: str, params: dict):
         handle (str): _description_
         params (dict): _description_
     """
-    return requests.get(
-        'https://api.omim.org/api/'+handle,
-        params=params,
-        headers={'ApiKey': OMIM_API_KEY},
-    )
+    try: 
+        return requests.get(
+            'https://api.omim.org/api/'+handle,
+            params=params,
+            headers={'ApiKey': OMIM_API_KEY},
+        )
+    except:
+        print(f"[red]Daily OMIM request limit exceed. Please  rerun the command tommorrow and it will safely resume.[/red]")
+    
+    return False
 
 
-def has_update(gm):
+def has_update(mims_to_check):
     """Check OMIM database if there is a update for an entry
 
     Args:
-        gene_entries (list[GeneEntry]): List of GeneEntry objects
+        mims_to_check (list[GeneEntry]): List of GeneEntry objects
 
     Returns:
         list: mim ids that have updates
     """
-    limit = 20
-    # mims = [_e.mimNumber for _e in gene_entries]
+    limit = 100
+    # mims = [str(mim) for mim in mims_to_check.keys()]
     params={
-        'search': 'number:'+str(gm.mimNumber),
+        'search': 'number:'+','.join(mims_to_check.keys()),
+        'sort': 'score+desc',
         'start': 0,
         'limit': limit,
         'include': 'dates',
@@ -68,56 +61,48 @@ def has_update(gm):
     }
     # Search through OMIM API
     response = omim_request('entry/search', params)
-    origin = response.json()['omim']['searchResponse']['entryList'][0]['entry']['dateUpdated']
-    origin = pendulum.instance(datetime.datetime.strptime(origin, '%a, %d %b %Y %H:%M:%S %Z'))
-    if gm.omim_entry_fetched:
-        local = pendulum.instance(gm.omim_entry_fetched)
-        # local = pendulum.parse(gm.omim_entry_fetched)
-        return origin > local
-    return True
-    # # Iterating though results and paging
-    # all_mims = []
-    # more_page = True
-    # total_result = response.json()['omim']['searchResponse']['totalResults']
-    # pbar = tqdm(total=total_result, colour="green")
-    # while more_page:
-    #     _entries = response.json()['omim']['searchResponse']['entryList']
-    #     # Persist in DB
-    #     for r in _entries:
-    #         gm = GeneEntry.objects(
-    #             mimNumber=r['entry']['mimNumber']).first()
-    #         all_mims.append(int(r['entry']['mimNumber'])) 
-    #         if gm == None:
-    #             gm = GeneMap()
-    #             gm.mimNumber = r['geneMap']['mimNumber']
-    #             gm.gpad_created = datetime.datetime.now()
-    #         phenos = []
-    #         for p in r['geneMap']['phenotypeMapList']:
-    #             pheno = Phenotype()
-    #             pheno.mim_number = p['phenotypeMap']['mimNumber']
-    #             pheno.phenotype = p['phenotypeMap']['phenotype']
-    #             pheno.mapping_key = p['phenotypeMap']['phenotypeMappingKey']
-    #             if 'phenotypeInheritance' in p['phenotypeMap']:
-    #                 pheno.inheritance = p['phenotypeMap']['phenotypeInheritance']
-    #             phenos.append(pheno)
-    #         gm.phenotypes = phenos
-    #         gm.gpad_updated = datetime.datetime.now()
-    #         gm.save()
-    #     # Next page
-    #     end_idx = response.json()['omim']['searchResponse']['endIndex']
-    #     start_idx = end_idx + 1
-    #     more_page = total_result > end_idx + 1
-    #     logging.info(f"{total_result} < {end_idx + 1} = {more_page}")
-    #     pbar.update(limit)
-    #     params={
-    #         'search': 'phenotype_exists:true',
-    #         'start': start_idx,
-    #         'limit': limit,
-    #         'format': 'json'
-    #     }
-    #     response = omim_request('geneMap/search', params)
-        
-    return True
+    if response:
+        checked = []
+        logging.debug(response.json())
+        for entry in response.json()['omim']['searchResponse']['entryList']:
+            mim = str(entry['entry']['mimNumber'])
+            if mim in mims_to_check.keys():
+                origin = pendulum.instance(
+                    datetime.datetime.strptime(
+                        entry['entry']['dateUpdated'], '%a, %d %b %Y %H:%M:%S %Z'))
+                if mims_to_check[mim][0].omim_entry_fetched:
+                    local = pendulum.instance(mims_to_check[mim][0].omim_entry_fetched)
+                    mims_to_check[mim][1] = origin > local
+                else:
+                    mims_to_check[mim][1] = False
+            checked.append(mim)
+        logging.debug(f"Checked {len(checked)} of {len(mims_to_check.keys())}")
+    return mims_to_check
+
+
+def what_to_update():
+    limit = 5
+    mims_to_check = {}
+    mims_to_fetch = []
+    for gm in tqdm(GeneMap.objects, colour='#999999', desc="Checking Updates"):
+        if gm.omim_entry_fetched:
+            mims_to_check[str(gm.mimNumber)] = [gm, False]
+            if len(mims_to_check.keys()) > limit:
+                checked_mims = has_update(mims_to_check)
+                for k, cm in checked_mims.items():
+                    logging.info(f"{cm[0].mimNumber}: {cm[1]}")
+                    if cm[1]:
+                        mims_to_fetch.append(cm[0].mimNumber)
+                        for p in cm[0].phenotypes:
+                            mims_to_fetch.append(p.mim_number)
+                mims_to_check = {}
+        else:
+            mims_to_fetch.append(gm.mimNumber)
+            for p in gm.phenotypes:
+                mims_to_fetch.append(p.mim_number)
+    return mims_to_fetch
+
+
 
 def get_geneMaps():
     """ Getting the gene mim ids from OMIM api using date range
@@ -139,44 +124,46 @@ def get_geneMaps():
     # Iterating though results and paging
     all_mims = []
     more_page = True
-    total_result = response.json()['omim']['searchResponse']['totalResults']
-    pbar = tqdm(total=total_result, colour="green")
-    while more_page:
-        _entries = response.json()['omim']['searchResponse']['geneMapList']
-        # Persist in DB
-        for r in _entries:
-            gm = GeneMap.objects(
-                mimNumber=r['geneMap']['mimNumber']).first()
-            all_mims.append(int(r['geneMap']['mimNumber'])) 
-            if gm == None:
-                gm = GeneMap()
-                gm.mimNumber = r['geneMap']['mimNumber']
-                gm.gpad_created = datetime.datetime.now()
-            phenos = []
-            for p in r['geneMap']['phenotypeMapList']:
-                pheno = Phenotype()
-                pheno.mim_number = p['phenotypeMap']['mimNumber']
-                pheno.phenotype = p['phenotypeMap']['phenotype']
-                pheno.mapping_key = p['phenotypeMap']['phenotypeMappingKey']
-                if 'phenotypeInheritance' in p['phenotypeMap']:
-                    pheno.inheritance = p['phenotypeMap']['phenotypeInheritance']
-                phenos.append(pheno)
-            gm.phenotypes = phenos
-            gm.gpad_updated = datetime.datetime.now()
-            gm.save()
-        # Next page
-        end_idx = response.json()['omim']['searchResponse']['endIndex']
-        start_idx = end_idx + 1
-        more_page = total_result > end_idx + 1
-        logging.info(f"{total_result} < {end_idx + 1} = {more_page}")
-        pbar.update(limit)
-        params={
-            'search': 'phenotype_exists:true',
-            'start': start_idx,
-            'limit': limit,
-            'format': 'json'
-        }
-        response = omim_request('geneMap/search', params)
+    
+    if response:
+        total_result = response.json()['omim']['searchResponse']['totalResults']
+        pbar = tqdm(total=total_result, colour="green", desc="Getting Associations")
+        while more_page:
+            _entries = response.json()['omim']['searchResponse']['geneMapList']
+            # Persist in DB
+            for r in _entries:
+                gm = GeneMap.objects(
+                    mimNumber=r['geneMap']['mimNumber']).first()
+                all_mims.append(int(r['geneMap']['mimNumber'])) 
+                if gm == None:
+                    gm = GeneMap()
+                    gm.mimNumber = r['geneMap']['mimNumber']
+                    gm.gpad_created = datetime.datetime.now()
+                phenos = []
+                for p in r['geneMap']['phenotypeMapList']:
+                    pheno = Phenotype()
+                    pheno.mim_number = p['phenotypeMap']['mimNumber']
+                    pheno.phenotype = p['phenotypeMap']['phenotype']
+                    pheno.mapping_key = p['phenotypeMap']['phenotypeMappingKey']
+                    if 'phenotypeInheritance' in p['phenotypeMap']:
+                        pheno.inheritance = p['phenotypeMap']['phenotypeInheritance']
+                    phenos.append(pheno)
+                gm.phenotypes = phenos
+                gm.gpad_updated = datetime.datetime.now()
+                gm.save()
+            # Next page
+            end_idx = response.json()['omim']['searchResponse']['endIndex']
+            start_idx = end_idx + 1
+            more_page = total_result > end_idx + 1
+            logging.info(f"{total_result} < {end_idx + 1} = {more_page}")
+            pbar.update(limit)
+            params={
+                'search': 'phenotype_exists:true',
+                'start': start_idx,
+                'limit': limit,
+                'format': 'json'
+            }
+            response = omim_request('geneMap/search', params)
     return all_mims
 
 
@@ -222,10 +209,16 @@ def ignore_existing_genes(all_gene_ids):
     print(f"Total {len(all_gene_ids)} entries to extract. {len(mim_ids_already_exists)} are already exist in the DB.")
     return genes_to_extract
 
-def extract_gene_info(genes_to_extract, entry_class=GeneEntry):
+def extract_gene_info(genes_to_extract):
+    """Extract text and related information from OMIM API
+
+    Args:
+        genes_to_extract (List[int]): List of OMIM MIM IDs to extract
+    """
     gene_count = len(genes_to_extract)
-    for i in trange(int(math.ceil(gene_count/OMIM_RESPONSE_LIMIT)), desc='overall'):
-        # print(f"Page {i}")
+    extracted = []
+    for i in trange(int(math.ceil(gene_count/OMIM_RESPONSE_LIMIT)), desc='Getting Text from OMIM API'):
+        # logging.info(f"Page {i}")
         omim_genes = genes_to_extract[i*OMIM_RESPONSE_LIMIT:(i+1)*OMIM_RESPONSE_LIMIT] 
         response = requests.get(
             'https://api.omim.org/api/entry',
@@ -236,57 +229,42 @@ def extract_gene_info(genes_to_extract, entry_class=GeneEntry):
             },
             headers={'ApiKey': OMIM_API_KEY},
         )
-        response_entries = response.json()['omim']['entryList']
-        for r in response_entries:
-            # existing_entry = GeneEntry.objects(
-            #     mimNumber=r['entry']['mimNumber']).first()
-            entry = entry_class()
-            entry["mimNumber"] = r['entry']['mimNumber']
-            entry["status"] = r['entry']['status']
-            entry["titles"] = r['entry']['titles']
-            entry["creationDate"] = r['entry']['creationDate']
-            entry["editHistory"] = r['entry']['editHistory']
-            entry["epochCreated"] = r['entry']['epochCreated']
-            entry["dateCreated"] = r['entry']['dateCreated']
-            entry["epochUpdated"] = r['entry']['epochUpdated']
-            entry["dateUpdated"] = r['entry']['dateUpdated']
-            if 'prefix' in r['entry']:
-                entry["prefix"] = r['entry']['prefix']
-            if 'geneMap' in r['entry']:
-                entry["geneMap"] = r['entry']['geneMap']
-            if 'textSectionList' in r['entry']:
-                entry["textSectionList"] = r['entry']['textSectionList']
-            if 'allelicVariantList' in r['entry']:
-                entry["allelicVariantList"] = r['entry']['allelicVariantList']
-            if 'referenceList' in r['entry']:
-                entry["referenceList"] = r['entry']['referenceList']
-            if 'externalLinks' in r['entry']:
-                entry["externalLinks"] = r['entry']['externalLinks']
-            entry["mtgUpdated"] = datetime.datetime.now()
-            # if existing_entry is None:
-            entry["mtgCreated"] = datetime.datetime.now()
-            # else:
-            #     entry["mtgCreated"] = existing_entry.mtgCreated
-            #     existing_entry.update(set__mtgUpdated = datetime.datetime.now())
-            entry.save()
-
-
-@click.command()
-@click.option('--init', is_flag=True, help='Initialize with current OMIM data')
-def extract_from_omim(init):
-    date_from = "2021/04/13"  # "to grab all use: 0000"
-    date_to = "*"  # "*" = now
-    
-    if init:
-        all_gene_ids = get_gene_ids('0000', date_to)
-        genes_to_extract = ignore_existing_genes(all_gene_ids)
-    else:
-        if GeneEntry.objects:
-            last_update_done_on = GeneEntry.objects().order_by('-dateUpdated').only('dateUpdated').first()['dateUpdated']
-            date_from = last_update_done_on.strftime("%Y/%m/%d")        
-        genes_to_extract = get_gene_ids(date_from, date_to)
-    print(f"Total {len(genes_to_extract)} will be collected from API")
-    extract_gene_info(genes_to_extract, GeneEntry)
-
-if __name__ == '__main__':
-    extract_from_omim()
+        if response:
+            response_entries = response.json()['omim']['entryList']
+            for r in response_entries:
+                entry = GeneEntry.objects(
+                    mimNumber=r['entry']['mimNumber']).first()
+                if entry == None:
+                    entry = GeneEntry()
+                    entry.mtgCreated = datetime.datetime.now()                
+                    entry.mimNumber = r['entry']['mimNumber']
+                entry.status = r['entry']['status']
+                entry.titles = r['entry']['titles']
+                entry.creationDate = r['entry']['creationDate']
+                entry.editHistory = r['entry']['editHistory']
+                entry.epochCreated = r['entry']['epochCreated']
+                entry.dateCreated = r['entry']['dateCreated']
+                entry.epochUpdated = r['entry']['epochUpdated']
+                entry.dateUpdated = r['entry']['dateUpdated']
+                entry.mtgUpdated = datetime.datetime.now()
+                if 'prefix' in r['entry']:
+                    entry.prefix = r['entry']['prefix']
+                if 'geneMap' in r['entry']:
+                    entry.geneMap = r['entry']['geneMap']
+                if 'textSectionList' in r['entry']:
+                    entry.textSectionList = r['entry']['textSectionList']
+                if 'allelicVariantList' in r['entry']:
+                    entry.allelicVariantList = r['entry']['allelicVariantList']
+                if 'referenceList' in r['entry']:
+                    entry.referenceList = r['entry']['referenceList']
+                if 'externalLinks' in r['entry']:
+                    entry.externalLinks = r['entry']['externalLinks']
+                entry.save()
+                
+                gm = GeneMap.objects(
+                    mimNumber=r['entry']['mimNumber']).first()
+                gm.gpad_updated = datetime.datetime.now()
+                gm.save()
+                extracted.append(int(r['entry']['mimNumber']))
+        else:
+            return extracted
