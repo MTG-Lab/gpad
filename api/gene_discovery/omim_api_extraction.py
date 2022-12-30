@@ -16,6 +16,7 @@ import pendulum
 import requests
 from rich import print
 from tqdm import tqdm, trange
+from mongoengine.queryset.visitor import Q
 
 from .models import *
 from .settings import *
@@ -84,10 +85,13 @@ def what_to_update():
     limit = 5
     mims_to_check = {}
     mims_to_fetch = []
-    for gm in tqdm(GeneMap.objects, colour='#999999', desc="Checking Updates"):
-        if gm.omim_entry_fetched:
-            mims_to_check[str(gm.mimNumber)] = [gm, False]
-            if len(mims_to_check.keys()) > limit:
+    for assoc in tqdm(AssociationInformation.objects, colour='#999999', desc="Checking Updates"):
+        if assoc.gene_entry_fetched:
+            mims_to_check[str(assoc.gene_mimNumber)] = [assoc, False]
+        if assoc.pheno_entry_fetched:
+            mims_to_check[str(assoc.pheno_mimNumber)] = [assoc, False]
+            # WIP change to assoc dict
+            if len(mims_to_check.keys()+1) > limit:
                 checked_mims = has_update(mims_to_check)
                 for k, cm in checked_mims.items():
                     logging.info(f"{cm[0].mimNumber}: {cm[1]}")
@@ -98,8 +102,8 @@ def what_to_update():
                 mims_to_check = {}
         else:
             mims_to_fetch.append(gm.mimNumber)
-            for p in gm.phenotypes:
-                mims_to_fetch.append(p.mim_number)
+            for p in assoc.phenotypes:
+                mims_to_fetch.append(p.mimNumber)
     return mims_to_fetch
 
 
@@ -131,26 +135,47 @@ def get_geneMaps():
         while more_page:
             _entries = response.json()['omim']['searchResponse']['geneMapList']
             # Persist in DB
-            for r in _entries:
-                gm = GeneMap.objects(
-                    mimNumber=r['geneMap']['mimNumber']).first()
-                all_mims.append(int(r['geneMap']['mimNumber'])) 
-                if gm == None:
-                    gm = GeneMap()
-                    gm.mimNumber = r['geneMap']['mimNumber']
-                    gm.gpad_created = datetime.datetime.now()
-                phenos = []
-                for p in r['geneMap']['phenotypeMapList']:
-                    pheno = Phenotype()
-                    pheno.mim_number = p['phenotypeMap']['mimNumber']
-                    pheno.phenotype = p['phenotypeMap']['phenotype']
-                    pheno.mapping_key = p['phenotypeMap']['phenotypeMappingKey']
-                    if 'phenotypeInheritance' in p['phenotypeMap']:
-                        pheno.inheritance = p['phenotypeMap']['phenotypeInheritance']
-                    phenos.append(pheno)
-                gm.phenotypes = phenos
-                gm.gpad_updated = datetime.datetime.now()
-                gm.save()
+            for gene in _entries:
+                if 'phenotypeMap' in gene['geneMap']:
+                    # gm = GeneMap.objects(
+                    #     mimNumber=r['geneMap']['mimNumber']).first()
+                    all_mims.append(int(gene['geneMap']['mimNumber'])) 
+                    # if gm == None:
+                    #     gm = GeneMap()
+                    #     gm.mimNumber = r['geneMap']['mimNumber']
+                    #     gm.gpad_created = datetime.datetime.now()
+                    # phenos = []
+                    for pheno in gene['geneMap']['phenotypeMapList']:
+                        # logging.debug(p)
+                        if 'phenotypeMimNumber' in pheno['phenotypeMap']:
+                            assoc = AssociationInformation.objects.filter(
+                                (Q(gene_mimNumber=gene['geneMap']['mimNumber']) and Q(pheno_mimNumber=pheno['phenotypeMap']['phenotypeMimNumber']))).first()
+                            if assoc  == None:
+                                assoc = AssociationInformation()
+                                assoc["gene_mimNumber"] = gene['geneMap']['mimNumber']
+                                assoc['pheno_mimNumber'] = pheno['phenotypeMap']['phenotypeMimNumber']
+                                assoc.gpad_created = pendulum.now()
+                            
+                            # ai['gene_prefix'] = gene_entry.prefix
+                            if 'geneSymbols' in gene['geneMap']:
+                                assoc["gene_symbols"] = gene['geneMap']['geneSymbols']
+                            if 'geneName' in gene['geneMap']:
+                                assoc["gene_name"] = gene['geneMap']['geneName']
+                            
+                            if 'phenotype' in pheno['phenotypeMap']:
+                                assoc["phenotype"] = pheno['phenotypeMap']['phenotype']
+                            if 'phenotypeMappingKey' in pheno['phenotypeMap']:
+                                assoc["mapping_key"] = pheno['phenotypeMap']['phenotypeMappingKey']
+                            if 'phenotypeInheritance' in pheno['phenotypeMap']:
+                                assoc["inheritance"] = pheno['phenotypeMap']['phenotypeInheritance']
+                            assoc.gpad_updated = pendulum.now()
+                            assoc.save()
+                            all_mims.append(int(pheno['phenotypeMap']['phenotypeMimNumber']))
+                            # phenos.append(pheno)
+                    # if len(phenos) > 0:
+                    #     gm.phenotypes = phenos
+                    #     gm.gpad_updated = datetime.datetime.now()
+                    #     gm.save()
             # Next page
             end_idx = response.json()['omim']['searchResponse']['endIndex']
             start_idx = end_idx + 1
@@ -224,7 +249,7 @@ def extract_gene_info(genes_to_extract):
             'https://api.omim.org/api/entry',
             params={
                 'mimNumber': ','.join(str(m) for m in omim_genes),
-                'include': 'text,allelicVariantList,geneMap,referenceList,externalLinks,dates,editHistory,creationDate',
+                'include': 'text,allelicVariantList,geneMap,phenotypeMap,referenceList,externalLinks,dates,editHistory,creationDate',
                 'format': 'json'
             },
             headers={'ApiKey': OMIM_API_KEY},
@@ -261,10 +286,16 @@ def extract_gene_info(genes_to_extract):
                     entry.externalLinks = r['entry']['externalLinks']
                 entry.save()
                 
-                gm = GeneMap.objects(
-                    mimNumber=r['entry']['mimNumber']).first()
-                gm.gpad_updated = datetime.datetime.now()
-                gm.save()
+                assoc = AssociationInformation.objects.filter(
+                    (Q(gene_mimNumber=r['entry']['mimNumber']) or Q(pheno_mimNumber=r['entry']['mimNumber']))).first()
+                if assoc:
+                    if assoc.gene_mimNumber == r['entry']['mimNumber']:
+                        assoc.gene_entry_fetched = pendulum.now()
+                    elif assoc.gene_mimNumber == r['entry']['mimNumber']:
+                        assoc.pheno_entry_fetched = pendulum.now()                        
+                    assoc.gpad_updated = pendulum.now()
+                    assoc.save()
+                
                 extracted.append(int(r['entry']['mimNumber']))
         else:
             return extracted
