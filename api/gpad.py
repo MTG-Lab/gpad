@@ -9,10 +9,12 @@ You should have received a copy of the license along with this program.
 # python -m api.gpad
 
 
-from api.gene_discovery.model_copy import copy
+from api.gene_discovery.displacy_visualizer import PatternLab
+from api.gene_discovery.model_copy import copy, pubmed_update
 import typer
 import logging
 import numpy as np
+import pandas as pd
 from tqdm import tqdm, trange
 from pathlib import Path
 
@@ -20,7 +22,7 @@ from rich import print
 
 from api.gene_discovery.data_curation import Curator
 from api.gene_discovery.gpad_validation import Validation
-from api.gene_discovery.models import AssociationInformation, GeneMap
+from api.gene_discovery.models import AggregationQueryFactory, AssociationInformation, GeneMap, GeneEntry
 
 from .gene_discovery.settings import *
 from .gene_discovery.omim_api_extraction import extract_gene_info, get_gene_ids, has_update, ignore_existing_genes, get_geneMaps, what_to_update
@@ -29,30 +31,74 @@ from .gene_discovery.omim_api_extraction import extract_gene_info, get_gene_ids,
 tpr = typer.Typer()
 
 
+import os
+from mongoengine import connect, disconnect
 
+@tpr.command()
+def lol():    
+    MONGO_URI = os.getenv("MONGO_URI")
+    disconnect()
+    connect(host=MONGO_URI)
+    print(GeneEntry.objects[:2])
 
 @tpr.command()
 def cp():
-    copy()
+    pubmed_update()
+
+
+@tpr.command()
+def lab():
+    
+    pl = PatternLab()
+    entries = GeneEntry.objects[:200]
+    # entries = GeneEntry.objects(mimNumber__in=[616576, 300438])
+    for entry in tqdm(entries):
+        # for allele in entry.allelicVariantList:
+        #     if 'text' in allele['allelicVariant']:
+        #             text = allele['allelicVariant']['text'].replace(
+        #                 '\n\n', ' ')
+        for text_section in entry.textSectionList:
+            if  text_section['textSection']['textSectionName'] == 'molecularGenetics':
+                text = text_section['textSection']['textSectionContent'].replace(
+                            '\n\n', ' ')
+                logging.debug(text)
+                # text = re.sub(Curator.publication_regex, mask_citation, text)
+                logging.debug(entry.mimNumber)
+                logging.debug(text)
+                matches = pl.match(text)
+                if matches:
+                    for m in matches:
+                        logging.debug(m)
+                logging.debug(matches)
+                # if entry.mimNumber == 300438:
+                # pl.show(text)
 
 
 
 @tpr.command()
 def compare():
     v = Validation()
-    v.get_years()
+    # print(v.chong_df)
+    # v.get_years()
+    v.combine()
     v.evaluate_match()
     v.save(as_excel=True)
     # v.plot()
 
 
 @tpr.command()
-def omim():
+def export():
+    aqf = AggregationQueryFactory()
+    aqf.export_associations(data_dir / f"export_AssociationInformation_mar2023_phenonotignored.xlsx")
+
+@tpr.command()
+def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without updating database")):
     print(f"\n:robot:..GPAD Started..:robot:\n")
     
-    # Get GeneMap entries
+    # # # Get GeneMap entries
     # all_mims = get_geneMaps()
-    print(f"Identify Associations [green]:heavy_check_mark:[/green]\n")
+    # print(f"Identify Associations [green]:heavy_check_mark:[/green]\n")
+    # logging.info(all_mims)
     
     # # Identify Entries to fetch
     # mims_to_fetch = what_to_update()
@@ -64,37 +110,54 @@ def omim():
     
     # # Apply NLP
     curation = Curator()
-    curation.curate([400020], force_update=True)
-    # curate(extracted)
+    curation.curate([], detect='all', force_update=True, dry_run=dry_run)
+    # curation.curate([400020], force_update=True)
+    # curation.curate(extracted)
     
     print(f":white_heavy_check_mark: DONE!")
 
 
 @tpr.command()
 def stat():
-    print("Analyzing OMIM's Gene Map")
-    gm = GeneMap.objects
-    assocs = []
-    for g in gm:
-        for p in g.phenotypes:
-            assocs.append((g.mimNumber, p.mimNumber))
-    assocs = np.array(assocs)
+    # print("Analyzing OMIM's Gene Map")
+    # gm = GeneMap.objects
+    # assocs = []
+    # c = 0
+    # for g in tqdm(gm):
+    #     for p in g.phenotypes:
+    #         assocs.append((g.mimNumber, p.mimNumber))
+                                
+    # assocs = np.array(assocs)
     
-    print(f"Total {len(list(set(assocs[:,0])))} unique genes")
-    print(f"Total {len(list(set(assocs[:,1])))} unique phenotypes")
-    print(f"Total {assocs.shape[0]} gene-phenotype associations")
-
+    # print(f"Total {len(list(set(assocs[:,0])))} unique genes")
+    # print(f"Total {len(list(set(assocs[:,1])))} unique phenotypes")
+    # print(f"[red]Total {assocs.shape[0]} gene-phenotype associations[/red]")
+    # print("[hr]")
+    
     print("Analyzing GPAD's Associations")
     ai = AssociationInformation.objects
     assocs = []
     for assoc in ai:
-        assocs.append((assoc.gene_mimNumber, assoc.pheno_mimNumber))
+        assocs.append((assoc.gene_mimNumber, assoc.pheno_mimNumber, assoc.mapping_key))
     assocs = np.array(assocs)
     
     print(f"Total {len(list(set(assocs[:,0])))} unique genes")
     print(f"Total {len(list(set(assocs[:,1])))} unique phenotypes")
-    print(f"Total {assocs.shape[0]} gene-phenotype associations")
+    print(f"[red]Total {assocs.shape[0]} gene-phenotype associations[/red]")
 
+    # filtered_ai = AssociationInformation.objects(Q((mapping_key=3) & ())).only('pheno_mimNumber')
+    phenos = AssociationInformation.objects(mapping_key__ne=3).only('pheno_mimNumber')
+    print(f"Total {filtered_ai.count()} GDA with mapping key 3")
+    print(f"Total {len(phenos)} GDA with mapping key other than 3")
+    # print(f"[red]{c}[/red]")
+    
+    # e = GeneEntry.objects(prefix='#').only('mimNumber')
+    # ids = [_e['mimNumber'] for _e in e]
+    # c = list(set(ids))
+    # print(f"[red]{len(c)}[/red]")
+
+
+    
 if __name__ == '__main__':
     tpr()
 
