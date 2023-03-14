@@ -22,6 +22,25 @@ from .models import *
 from .settings import *
 
 
+
+
+class OmimApiAdapter:
+    
+    limit = 100
+    # params = {
+    #     'has_update': {
+    #         'search': 'number:'+','.join(mims_to_check.keys()),
+    #         'sort': 'score+desc',
+    #         'start': 0,
+    #         'limit': limit,
+    #         'include': 'dates',
+    #         'format': 'json'
+    #     }
+    # }
+
+
+
+
 def omim_request(handle: str, params: dict):
     """Send OMIM API request
 
@@ -101,9 +120,9 @@ def what_to_update():
                             mims_to_fetch.append(p.mim_number)
                 mims_to_check = {}
         else:
-            mims_to_fetch.append(gm.mimNumber)
+            mims_to_fetch.append(assoc.pheno_mimNumber)
             for p in assoc.phenotypes:
-                mims_to_fetch.append(p.mimNumber)
+                mims_to_fetch.append(assoc.pheno_mimNumber)
     return mims_to_fetch
 
 
@@ -136,26 +155,18 @@ def get_geneMaps():
             _entries = response.json()['omim']['searchResponse']['geneMapList']
             # Persist in DB
             for gene in _entries:
-                if 'phenotypeMap' in gene['geneMap']:
-                    # gm = GeneMap.objects(
-                    #     mimNumber=r['geneMap']['mimNumber']).first()
-                    all_mims.append(int(gene['geneMap']['mimNumber'])) 
-                    # if gm == None:
-                    #     gm = GeneMap()
-                    #     gm.mimNumber = r['geneMap']['mimNumber']
-                    #     gm.gpad_created = datetime.datetime.now()
-                    # phenos = []
+                if 'phenotypeMapList' in gene['geneMap'] and len(gene['geneMap']['phenotypeMapList']):
+                    all_mims.append(int(gene['geneMap']['mimNumber']))
                     for pheno in gene['geneMap']['phenotypeMapList']:
-                        # logging.debug(p)
                         if 'phenotypeMimNumber' in pheno['phenotypeMap']:
+                            # logging.debug(f"{gene['geneMap']['mimNumber']} - {pheno['phenotypeMap']['phenotypeMimNumber']}")
                             assoc = AssociationInformation.objects.filter(
                                 (Q(gene_mimNumber=gene['geneMap']['mimNumber']) and Q(pheno_mimNumber=pheno['phenotypeMap']['phenotypeMimNumber']))).first()
                             if assoc  == None:
                                 assoc = AssociationInformation()
                                 assoc["gene_mimNumber"] = gene['geneMap']['mimNumber']
                                 assoc['pheno_mimNumber'] = pheno['phenotypeMap']['phenotypeMimNumber']
-                                assoc.gpad_created = pendulum.now()
-                            
+                                assoc.gpad_created = pendulum.now()                            
                             # ai['gene_prefix'] = gene_entry.prefix
                             if 'geneSymbols' in gene['geneMap']:
                                 assoc["gene_symbols"] = gene['geneMap']['geneSymbols']
@@ -169,17 +180,15 @@ def get_geneMaps():
                             if 'phenotypeInheritance' in pheno['phenotypeMap']:
                                 assoc["inheritance"] = pheno['phenotypeMap']['phenotypeInheritance']
                             assoc.gpad_updated = pendulum.now()
+                            # logging.debug(assoc)
                             assoc.save()
                             all_mims.append(int(pheno['phenotypeMap']['phenotypeMimNumber']))
                             # phenos.append(pheno)
-                    # if len(phenos) > 0:
-                    #     gm.phenotypes = phenos
-                    #     gm.gpad_updated = datetime.datetime.now()
-                    #     gm.save()
             # Next page
             end_idx = response.json()['omim']['searchResponse']['endIndex']
             start_idx = end_idx + 1
             more_page = total_result > end_idx + 1
+            # logging.debug(response.json())
             logging.info(f"{total_result} < {end_idx + 1} = {more_page}")
             pbar.update(limit)
             params={
@@ -299,3 +308,4 @@ def extract_gene_info(genes_to_extract):
                 extracted.append(int(r['entry']['mimNumber']))
         else:
             return extracted
+

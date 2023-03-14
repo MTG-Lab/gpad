@@ -1,6 +1,6 @@
 
 # from .data_curation import *
-from api.gene_discovery.data_curation import nearest_publication_detector
+from api.gene_discovery.data_curation import Curator, nearest_publication_detector
 from .models import *
 
 def test_nearest_publication():
@@ -27,6 +27,13 @@ def test_nearest_publication():
         assert nearest_match.group(1) == assert_check[idx][0]
         assert nearest_match.group(2) == assert_check[idx][1]
         assert nearest_match.group(3) == assert_check[idx][2]
+
+def test_nearest_publication_detector():
+    mims_to_check = [168601]
+        
+    curation = Curator()
+    curation.curate(mims_to_check)
+
 
 # def test_earliest_evidence_view():
 #     processed_evidences = EarliestPhenotypeEvidences.objects.only('gene_mim_id')

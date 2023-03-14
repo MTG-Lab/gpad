@@ -15,6 +15,8 @@ from pathlib import Path
 from mongoengine import connect
 from pymongo import MongoClient
 
+from Bio import Entrez
+
 project_dir = Path(__file__).parents[2]
 data_dir = project_dir / 'data'
 
@@ -41,3 +43,5 @@ logging.basicConfig(filename=project_dir/'logs'/f"app{pendulum.now()}.log", file
 MONGO_URI = os.getenv("MONGO_URI")
 # db = MongoClient(MONGO_URI)['gene_discovery']
 connect(host=MONGO_URI)
+
+Entrez.email = "tahsin.rahit@gmail.com"

@@ -19,6 +19,7 @@ from spacy.matcher import DependencyMatcher, PhraseMatcher
 from tqdm import tqdm, trange
 from word2number import w2n
 from mongoengine.queryset.visitor import Q
+from Bio import Entrez
 
 from .models import *
 from .settings import *
@@ -27,8 +28,12 @@ from .settings import *
 class Curator:
     INF = 99999
     ignore_before = 1980
+    max_cohort_size = 3000
+    pubmed_date_regex = r"(\d{4})\ ?(\S{3})?( \d{2})?"
     publication_regex = r"([0-9]{1,}):([a-zA-Z0-9' \/-]{3,}\.?),?\ [\(]?([0-9]{4})[\)]?"
+    publication_mask = r"\{REF#([0-9]{1,})\}"
     date_regex = r"^\d{1,2}\/\d{1,2}\/\d{4}$"
+    detection_modules = ['basic','association','animal','cohort']
     animal_models = [
         "Saccharomyces cerevisiae", "S. cerevisiae", "Yeast",
         "Pisum sativum", "Pea plant",
@@ -44,6 +49,18 @@ class Curator:
         'X-linked', 'X-linked dominant', 'X-linked recessive', 'Y-linked']
     matcher_platform = ["GeneMatcher", "Matchmaker", "DECIPHER",
                         "IRUD", "MyGene2", "PatientMatcher", "PhenomeCentral", ]
+    # cohort_phrase_pattern = [
+    #     {
+    #         "RIGHT_ID": "anchor_patients",
+    #         "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "people", "infant", "woman", "man", "proband", "case"]}, "POS": "NOUN"}
+    #     },
+    #     {
+    #         "LEFT_ID": "anchor_patients",
+    #         "REL_OP": ">",
+    #         "RIGHT_ID": "patient_count",
+    #         "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
+    #     },
+    # ]
     cohort_phrase_pattern = [
         {
             "RIGHT_ID": "anchor_patients",
@@ -95,8 +112,12 @@ class Curator:
         # text_variations = {}
         # Defining NLP matchers
         self.nlp = spacy.load("en_core_web_sm")
-        self.dependency_matcher = DependencyMatcher(self.nlp.vocab)
-        self.dependency_matcher.add("Patient", [self.cohort_phrase_pattern])
+        # Cohort
+        self.cohort_matcher = DependencyMatcher(self.nlp.vocab)
+        self.cohort_matcher.add("Cohort", [self.cohort_phrase_pattern])
+        # Unrelated Patient
+        # self.unrelated_cohort_matcher = DependencyMatcher(self.nlp.vocab)
+        # self.unrelated_cohort_matcher.add("UnrelatedCohort", [self.unrelated_cohort_phrase_pattern])
         # Original Study Matcher
         self.original_study_matcher = DependencyMatcher(self.nlp.vocab)
         self.original_study_matcher.add("OriginalStudy", [self.original_study_pattern])
@@ -117,6 +138,54 @@ class Curator:
                 # logging.debug(doc[token_ids[3]].text)
                 pub_ref_ids.append(doc[token_ids[3]].text)
         return pub_ref_ids
+    
+    def __mask_citation(match):
+        return "Ref#" + match.group(1)
+    
+    
+    def pmid_to_date(self, pmid):
+        """Get publication date from pubmed ID
+
+        Args:
+            pmid (int): Pubmed PMID
+
+        Returns:
+            str: date wit month information
+        """
+        if pmid:
+            pe = PubmedEntry.objects(pmid=pmid).first()
+            if pe == None:
+                logging.info(f"Sending Entrez request for PMID: {pmid}")
+                pe = PubmedEntry()
+                handle = Entrez.esummary(db="pubmed", id=pmid)
+                record = Entrez.read(handle)
+                handle.close()
+                pe.pmid = pmid
+                pe.raw_pub_date = record[0]["PubDate"]
+                dt_match = re.match(self.pubmed_date_regex, record[0]["PubDate"])
+                try:
+                    if dt_match and dt_match.group(3):
+                        pe.pub_date =  datetime.strptime(dt_match.group(), "%Y %b %d")
+                    elif dt_match:
+                        pe.pub_date =  datetime.strptime(dt_match.group(), "%Y %b")
+                except ValueError as e:
+                    logging.exception(repr(e))
+                if dt_match:
+                    pe.pub_year = dt_match.group(1)
+                
+                if 'EPubDate' in record[0]:
+                    pe.raw_epub_date = record[0]["EPubDate"]
+                    epub_dt_match = re.match(self.pubmed_date_regex, record[0]["EPubDate"])                
+                    if epub_dt_match and epub_dt_match.group(3):
+                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b %d")
+                    elif epub_dt_match:
+                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b")
+                pe.save()
+            if pe.epub_date:
+                return pe.epub_date
+            else:
+                return pe.pub_date
+        return None
 
     def __nearest_publication_detector(self, text, ref_start_position):
         """Detect nearest citation from the anchor token
@@ -169,12 +238,15 @@ class Curator:
         return nearest_match
 
     def __create_publication_object_from_match(self, pub_match, reference_list=None):
+        ref_no = pub_match
+        if isinstance(pub_match, re.Match):
+            ref_no = pub_match.group(1)
         pmid = None
         if reference_list:
             for ref in reference_list:
                 # print(pub_match)
                 if 'referenceNumber' in ref['reference'] \
-                        and ref['reference']['referenceNumber'] == int(pub_match.group(1)) \
+                        and ref['reference']['referenceNumber'] == int(ref_no) \
                         and 'pubmedID' in ref['reference']:
                     pmid = ref['reference']['pubmedID']
         # print(pub_match.group(0))
@@ -182,6 +254,7 @@ class Curator:
         pub["pmid"] = pmid
         pub["author"] = pub_match.group(2)
         pub["year"] = pub_match.group(3)
+        pub["pub_date"] = self.pmid_to_date(pmid)
         return pub
 
     def __get_matcher_platform(self, text, reference_list=None):
@@ -201,67 +274,185 @@ class Curator:
                         matcher_platforms.append(
                             matcher_platform)
         return matcher_platforms
+    
+    def __closest_animal_model(self, doc, ref_position=0):
+        """Get closest animal model and the closest citation to it.
 
-    def __get_animal_model(self, text, reference_list=None):
-        animal_models = []
+        Args:
+            doc (Doc): Doc representation of the text where animal models will be searched for
+            ref_position (int): reference start positon. default 0.
+            
+        Returns:
+            str: closest animal model to the reference srart position
+            int: start position of the closest animal model
+        """
+        nearest_match = None
+        lowest_distance = self.INF
+        distance = lowest_distance + 1
+        start_position = 0
         # Detecting animal model
-        doc = self.nlp(text)
         matches = self.animal_matcher(doc)
         if matches:
             for match_id, start, end in matches:
-                nearest_pub = self.__nearest_publication_detector(
-                    doc.text, doc[start:end].start_char)
-                if nearest_pub:
-                    animal_model = AnimalModelsItem()
-                    animal_model['animal_name'] = doc[start:end].text
-                    # print(f"========\n{doc.text}\n{nearest_pub}=======")
-                    animal_model['publication_evidence'] = self.__create_publication_object_from_match(
-                        nearest_pub, reference_list)
-                    if animal_model not in animal_models:
-                        animal_models.append(animal_model)
-        return animal_models
+                m_span = doc[start:end]
+                m_start = m_span.start_char
+                # Consider proximity of the detected publication to the anchor text
+                if m_start < ref_position:
+                    distance = abs(ref_position - m_start)
+                elif nearest_match is None and m_start > ref_position:
+                    distance = abs(m_start - ref_position)
+                if distance < lowest_distance:
+                    nearest_match = m_span.text
+                    lowest_distance = distance
+                    start_position = m_start
+        # if nearest_match:
+        #     logging.debug(f"{doc.text[doc[start:end].start_char:10]}")
+        #     logging.debug(f"Nearest match: {nearest_match}")
+        #     logging.debug(doc.text)
+        return nearest_match, start_position
+        
 
-    def __get_cohorts(self, text, reference_list=None, source='gene'):
-        # print("cohort start")
+    def __get_animal_model(self, text, reference_list=None, ref_start_position=0, known_publication=None, section_name=None):
+        """Detect Animal model in a text
+
+        Args:
+            text (str): String represetntation of the text
+            reference_list (list, optional): List of OMIMM reference. Defaults to None.
+            ref_start_position (int, optional): Reference start position of the text.
+                            This position will be taken into account when searching for the animal model.
+                            Defaults to 0.
+            known_publication (Publication, optional): If already known, the publication reference. 
+                            Otherwise this function will detect. Defaults to None.
+            section_name (str, optional): Name of the text section title.
+
+        Returns:
+            AnimalModelsItem: Model item for the detected animal model. 
+            None: If none found retun None
+        """
+        text = text.replace('al.', 'al')
+        paras = text.split('\n\n')
+        earliest_ref = None
+        anchor_location = 0
+        paragraph = None
+        earliest_animal = None
+        
+        if ref_start_position > 0:
+            # Detecting the paragraph span of the reference position
+            p_start = 0
+            p_end = text.find('\n\n')        
+            while p_end < ref_start_position:
+                p_start = p_end+1
+                p_end = text.find('\n\n', p_start)
+                if p_end == -1:
+                    p_end = len(text)
+                    break
+                # logging.debug(f"p_start: {p_start}, p_end: {p_end}")
+                # logging.debug(f"Paragraph evaluating: {text[p_start:p_end]}")
+            reletive_ref_start = ref_start_position - p_start
+            paragraph = text[p_start:p_end]
+            doc = self.nlp(paragraph)
+            mo, ref_start = self.__closest_animal_model(doc, reletive_ref_start)
+            if mo != None:                
+                pub_match = self.__nearest_publication_detector(paragraph, ref_start)
+                if pub_match:
+                    # logging.debug(pub_match)
+                    pub = self.__create_publication_object_from_match(pub_match, reference_list)
+                    if earliest_animal == None or int(pub.year) < int(earliest_animal.publication_evidence.year):
+                        earliest_ref = pub
+                        earliest_animal = AnimalModelsItem()
+                        earliest_animal.animal_name = mo
+                        earliest_animal.section_title = section_name
+                        earliest_animal.publication_evidence = pub
+        # If no animal model found in the paragraph of the reference, search in the whole text
+        if earliest_animal == None:
+            for p in paras:
+                doc = self.nlp(p)
+                mo, ref_start = self.__closest_animal_model(doc)
+                if mo != None:                
+                    pub_match = self.__nearest_publication_detector(p, ref_start)
+                    if pub_match:
+                        # logging.debug(pub_match)
+                        pub = self.__create_publication_object_from_match(pub_match, reference_list)
+                        if earliest_animal == None or int(pub.year) < int(earliest_animal.publication_evidence.year):
+                            earliest_ref = pub
+                            paragraph = p
+                            earliest_animal = AnimalModelsItem()
+                            earliest_animal.animal_name = mo
+                            earliest_animal.section_title = section_name
+                            earliest_animal.publication_evidence = pub
+                        
+            # if known_publication == None and mo != None:
+            #     nearest_pub_match = self.__nearest_publication_detector(text, ref_start)
+            #     if nearest_pub_match:
+            #         known_publication = self.__create_publication_object_from_match(nearest_pub_match, reference_list)
+            # if known_publication != None:
+            #     earliest_animal = AnimalModelsItem()
+            #     earliest_animal.animal_name = mo
+            #     earliest_animal.section_title = section_name
+            #     earliest_animal.publication_evidence = known_publication
+        
+        return earliest_animal
+        
+        
+
+    def __get_cohorts(self, text, reference_list=None, source='molecularGenetics'):
         # Detecting patient information
         cohorts = []
+        total_cohort_size = 0
+        # total_unrelated_cohort_size = 0
         doc = self.nlp(text)          # TODO: Also detect population here? making it attachable to the cohort info
-        patient_matches = self.dependency_matcher(doc)
+        patient_matches = self.cohort_matcher(doc)
+        # logging.debug(patient_matches)
+        # patient_matches = self.cohort_phrase_pattern(doc)
+        # logging.debug(up_matches)
         if patient_matches:
             match_ids = []
             for match_id, token_ids in patient_matches:
+                ignore = False
                 if match_id not in match_ids:
                     cohort = CohortDescription()
                     cohort['source'] = source
+                    # is_unrelated = False
                     for i in range(len(token_ids)):
                         if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'anchor_patients':
                             cohort['cohort_type'] = doc[token_ids[i]].text
                         if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'patient_modifier':
                             cohort['cohort_relation'] = doc[token_ids[i]].text
+                            # is_unrelated = True
                         if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'patient_count':
                             try:
-                                cohort['cohort_count'] = w2n.word_to_num(doc[token_ids[i]].text)
+                                cohort['cohort_count'] = w2n.word_to_num(doc[token_ids[i]].text.replace(',',''))
+                                if cohort['cohort_count'] > self.max_cohort_size:
+                                    ignore = True
+                                    break
+                                total_cohort_size += cohort['cohort_count']
+                                # if is_unrelated:
+                                # total_unrelated_cohort_size += cohort['cohort_count']
                             except:
                                 cohort['cohort_count'] = -1
-                                # logging.warning(doc[token_ids[i]].text)
-                    nearest_pub = self.__nearest_publication_detector(
-                        doc.text, doc[token_ids[0]:token_ids[1]].start_char)
-                    if nearest_pub:
-                        cohort['publication_evidence'] = self.__create_publication_object_from_match(
-                            nearest_pub, reference_list)
-                        cohorts.append(cohort)
-                    match_ids.append(match_id)
+                                logging.warning(f"Cohort count failed: {doc[token_ids[i]].text}")
+                    if ignore == False:
+                        nearest_pub = self.__nearest_publication_detector(
+                            doc.text, doc[token_ids[0]:token_ids[1]].start_char)
+                        if nearest_pub:
+                            cohort['publication_evidence'] = self.__create_publication_object_from_match(nearest_pub, reference_list)
+                            cohorts.append(cohort)
+                        match_ids.append(match_id)
         # print("cohort end")
-        return cohorts
+        logging.debug(total_cohort_size)
+        # logging.debug(total_unrelated_cohort_size)
+        return cohorts, total_cohort_size #, total_unrelated_cohort_size
 
-    def __earliest_ref_from_text(self, query: str, text: str, reference_list: list):
-        """Get earliest publication reference by search for specific text with large section.
-        Sections can have paragraph.
+    def __earliest_ref_from_text(self, query: str, text: str, reference_list: list, sync_matcher=None):
+        """Get earliest publication reference by searching for specific text in large text.
+        Text can have paragraph.
 
         Args:
             query (str): Query text
             text (str): Text to search
             reference_list (list): List of reference to use to extract publication releted info
+            sync_matcher (Matcher, optional): Spacy Matcher function to sync
+                    (cross match check/2ndary value match check) the search. Defaults to None.
 
         Returns:
             None: if there is no publication found
@@ -271,38 +462,35 @@ class Curator:
         text = text.replace('al.', 'al')
         paras = text.split('\n\n')
         earliest_ref = None
+        anchor_location = 0
+        paragraph = None
         if not isinstance(query, list):
             query = [query]
         logging.debug(f"Looking for anchors: {query}")
         for p in paras:
-            for q in query:
-                start = p.find(str(q))
-                if start != -1:
-                    pub_match = self.__nearest_publication_detector(p, start)
-                    if pub_match:
-                        # logging.debug(pub_match)
-                        pub = self.__create_publication_object_from_match(pub_match, reference_list)
-                        if earliest_ref == None or int(pub.year) < int(earliest_ref.year):
-                            earliest_ref = pub
-                
-            
-        # for p in paras:
-        #     start = p.find(str(query))
-        #     if start != -1:
-        #         pub_match = self.__nearest_publication_detector(p, start)
-        #         if pub_match:
-        #             # logging.debug(pub_match)
-        #             pub = self.__create_publication_object_from_match(pub_match, reference_list)
-        #             if earliest_ref == None or int(pub.year) < int(earliest_ref.year):
-        #                 earliest_ref = pub
-        # logging.debug(earliest_ref)
-        return earliest_ref
+            if sync_matcher:
+                sync_match = sync_matcher(self.nlp(p))
+            if sync_matcher == None or sync_match:
+                for q in query:
+                    start = p.find(str(q))
+                    if start != -1:
+                        pub_match = self.__nearest_publication_detector(p, start)
+                        if pub_match:
+                            # logging.debug(pub_match)
+                            pub = self.__create_publication_object_from_match(pub_match, reference_list)
+                            if earliest_ref == None or int(pub.year) < int(earliest_ref.year):
+                                anchor_location = start
+                                earliest_ref = pub
+                                paragraph = p
+        return earliest_ref, anchor_location, paragraph
+    
 
-    def process(self, item: AssociationInformation):
+    def process(self, item: AssociationInformation, detect='all', dry_run=False):
     # def process(self, gene_entry):
         # Known Genotype-Phenotype relationships
         _known_phenos = []
-        
+        if detect == 'all':
+            detect = self.detection_modules
         gene_entry = GeneEntry.objects(mimNumber=item.gene_mimNumber).order_by('-mtgUpdated').first()
         
         
@@ -311,8 +499,8 @@ class Curator:
             logging.debug(f"Analyzing gene: {item.gene_mimNumber}")
             known_phenotypes = gene_entry.geneMap['phenotypeMapList']
             for p in known_phenotypes:
-                phenotype_check = True
                 cohorts = []
+                total_cohort_size = 0
                 earliest_evidence = None
                 earliest_animal = None
                 earliest_cohort = None
@@ -322,80 +510,80 @@ class Curator:
                         and 'phenotypeMimNumber' in p['phenotypeMap'] \
                         and p['phenotypeMap']['phenotypeMimNumber'] == item.pheno_mimNumber:
                             
-                    phenotype_name = p['phenotypeMap']['phenotype']
-                    # inheritance = p['phenotypeMap']['phenotypeInheritance']
-                    # # Check if type of inheritance is Mendelian
-                    # pits = inheritance.split(';')
-                    # for pit in pits:
-                    #     if pit.strip() in self.phenotype_inheritence_types:
-                    #         phenotype_check = True
-                    #         break
-                    # Check if there is a clear association
-                    for ip in self.ignore_phenotypes:
-                        if ip in phenotype_name:
-                            phenotype_check = False
-                            logging.debug(f"Phenotype ignored {item.pheno_mimNumber}")
-                            break
-                    if phenotype_check and item.mapping_key:
-                        pheno_mim = item.pheno_mimNumber
-                        logging.debug(f"Pheno checking: {pheno_mim}")
+                    if 'basic' in detect:
+                        phenotype_name = p['phenotypeMap']['phenotype']
+                        # inheritance = p['phenotypeMap']['phenotypeInheritance']
+                        # # Check if type of inheritance is Mendelian
+                        # pits = inheritance.split(';')
+                        # for pit in pits:
+                        #     if pit.strip() in self.phenotype_inheritence_types:
+                        #         phenotype_check = True
+                        #         break
+                        
+                        # Check if there is a clear association
+                        for ip in self.ignore_phenotypes:
+                            if ip in phenotype_name:
+                                item.phenotype_marked_with = ip
+                            
+                    pheno_mim = item.pheno_mimNumber
+                    logging.debug(f"Pheno checking: {pheno_mim}")
 
-                        # item = AssociationInformation()
-                        # item["gene_mimNumber"] = gene_entry.mimNumber
+                    if 'basic' in detect:
                         item.gene_prefix = gene_entry.prefix
                         if 'geneMap' in gene_entry and 'geneSymbols' in gene_entry.geneMap:
                             item.gene_symbols = gene_entry.geneMap['geneSymbols']
                         if 'geneMap' in gene_entry and 'geneName' in gene_entry.geneMap:
                             item.gene_name = gene_entry.geneMap['geneName']
-                        # item["gpad_created"] = gene_entry.mtgCreated
-                        item.gpad_updated = pendulum.now()
-                        
-                        # Look at the phenotype for available information
-                        pheno_entry = GeneEntry.objects(mimNumber=pheno_mim).first()
-                        if pheno_entry:
+                    
+                    # Look at the phenotype for available information
+                    pheno_entry = GeneEntry.objects(mimNumber=pheno_mim).first()
+                    if pheno_entry:
+                        if 'basic' in detect:
                             item.pheno_prefix = pheno_entry.prefix
 
-                            # Detecting matcher platform from the phenotype entry
-                            # NOTE: Might not be good for genetically heterogenious phenotypes
-                            pheno_text = ' '.join(t['textSection']['textSectionContent'].replace(
-                                '\n\n', ' ') for t in pheno_entry.textSectionList)
+                        # Detecting animal model
+                        # TODO: Sync with allelic variant's MO section
+                        for pheno_text in pheno_entry.textSectionList:
+                            
+                            # Looking at Phenotype's Animal Model excerpt for model organism study
+                            if 'animal' in detect and pheno_text['textSection']['textSectionName'] == 'animalModel':
+                                logging.debug('----Animal Model----')
+                                text = pheno_text['textSection']['textSectionContent']
+                                query = []
+                                if 'approvedGeneSymbols' in gene_entry.geneMap:
+                                    query.append(gene_entry.geneMap['approvedGeneSymbols'])
+                                query.append(gene_entry.mimNumber)
+                                earliest_mo_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
+                                    query, text, pheno_entry.referenceList, self.animal_matcher)
+                                if earliest_mo_pub:
+                                    earliest_animal = self.__get_animal_model(paragraph, pheno_entry.referenceList, anchor_location, earliest_mo_pub, section_name='animalModel')
+                                else:
+                                    earliest_animal = self.__get_animal_model(text, pheno_entry.referenceList, section_name='animalModel')
+                                
+                                # TODO - DELETE THIS SECTION
+                                # anim_paras = pheno_text['textSection']['textSectionContent'].split(
+                                #     '\n\n')
+                                # for p in anim_paras:
+                                #     _animal_models = self.__get_animal_model(p, pheno_entry.referenceList)
+                                #     for animal_model in _animal_models:
+                                #         if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
+                                #             earliest_animal = animal_model
+                                #             # if earliest_animal.publication_evidence.year < int(earliest_evidence.publication_evidence.year):
+                                #             #     earliest_evidence = Evidence()
+                                #             #     earliest_evidence.section_title = 'animalModel'
+                                #             #     earliest_evidence.referred_entry = 0
+                                #             #     earliest_evidence.publication_evidence = earliest_animal.publication_evidence
 
-                            # cohorts = self.__get_cohorts(pheno_text, pheno_entry.referenceList, source="phenotype")
-                            # for cohort in cohorts:
-                            #     if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
-                            #         earliest_cohort = cohort
-
-                            # _matcher_platforms = self.__get_matcher_platform(pheno_text, pheno_entry.referenceList)
-                            # for m in _matcher_platforms:
-                            #     if m not in matcher_platforms:
-                            #         matcher_platforms.append(m)
-
-                            # Detecting animal model
-                            # TODO: Sync with allelic variant's MO section
-                            for pheno_text in pheno_entry.textSectionList:
-                                # if pheno_text['textSection']['textSectionName'] == 'animalModel':
-                                #     anim_paras = pheno_text['textSection']['textSectionContent'].split(
-                                #         '\n\n')
-                                #     for p in anim_paras:
-                                #         _animal_models = self.__get_animal_model(p, pheno_entry.referenceList)
-                                #         for animal_model in _animal_models:
-                                #             if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
-                                #                 earliest_animal = animal_model
-                                #                 # if earliest_animal.publication_evidence.year < int(earliest_evidence.publication_evidence.year):
-                                #                 #     earliest_evidence = Evidence()
-                                #                 #     earliest_evidence.section_title = 'animalModel'
-                                #                 #     earliest_evidence.referred_entry = 0
-                                #                 #     earliest_evidence.publication_evidence = earliest_animal.publication_evidence
-                                # Looking at Phenotype's Molecular Genetics excerpt only if we do not have any evidence yet
-                                # if earliest_evidence == None:
-                                if earliest_evidence == None and pheno_text['textSection']['textSectionName'] == 'molecularGenetics':
-                                    logging.debug('----MOL-GEN----')
-                                    text = pheno_text['textSection']['textSectionContent']
-                                    query = []
-                                    if 'approvedGeneSymbols' in gene_entry.geneMap:
-                                        query.append(gene_entry.geneMap['approvedGeneSymbols'])
-                                    query.append(gene_entry.mimNumber)
-                                    earliest_pub = self.__earliest_ref_from_text(
+                            # Looking at Phenotype's Molecular Genetics for information
+                            if earliest_evidence == None and pheno_text['textSection']['textSectionName'] == 'molecularGenetics':
+                                logging.debug('----MOL-GEN----')
+                                text = pheno_text['textSection']['textSectionContent']
+                                query = [gene_entry.mimNumber]
+                                if 'approvedGeneSymbols' in gene_entry.geneMap:
+                                    query.append(gene_entry.geneMap['approvedGeneSymbols'])
+                                # GDA
+                                if 'association' in detect:
+                                    earliest_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
                                         query, text, pheno_entry.referenceList)
                                     logging.debug(earliest_pub)
                                     if earliest_pub != None:
@@ -405,14 +593,25 @@ class Curator:
                                         evidence.publication_evidence = earliest_pub
                                         if earliest_evidence == None or int(earliest_pub.year) < int(earliest_evidence.publication_evidence.year):
                                             earliest_evidence = evidence
- 
+                                # Animal Model
+                                if 'animal' in detect and earliest_animal == None:
+                                    earliest_animal = self.__get_animal_model(text, pheno_entry.referenceList, anchor_location, section_name='molecularGenetics')
+                                # Cohort
+                                if 'cohort' in detect and earliest_cohort == None:
+                                    text = text.replace('al.', 'al')
+                                    cohorts, tcs = self.__get_cohorts(text, pheno_entry.referenceList, source="molecularGenetics")
+                                    total_cohort_size += tcs
+                                    for cohort in cohorts:
+                                        if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
+                                            earliest_cohort = cohort
 
-                        # Check Allelic variants' text for the gene
-                        if earliest_evidence == None:
-                            for allele in gene_entry.allelicVariantList:
-                                if 'text' in allele['allelicVariant']:
-                                    logging.debug('----AV----')
-                                    earliest_pub = self.__earliest_ref_from_text(
+                    # Check Allelic variants' text for the GDA evidences
+                    if earliest_evidence == None:
+                        for allele in gene_entry.allelicVariantList:
+                            if 'text' in allele['allelicVariant']:
+                                logging.debug('----AV----')
+                                if 'association' in detect:
+                                    earliest_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
                                         pheno_mim, allele['allelicVariant']['text'], gene_entry.referenceList)
                                     logging.debug(earliest_pub)
                                     if earliest_pub != None:
@@ -422,316 +621,74 @@ class Curator:
                                         evidence.publication_evidence = earliest_pub
                                         if earliest_evidence == None or int(earliest_pub.year) < int(earliest_evidence.publication_evidence.year):
                                             earliest_evidence = evidence
-
-                                        # text = allele['allelicVariant']['text'].replace(
-                                        #     '\n\n', ' ')
-                                        # text = text.replace('al.', 'al')
-                                        # if str(pheno_mim) in text:
-                                        #     # Detecting cohort descriptoion
-                                        #     cohorts = self.__get_cohorts(text, gene_entry.referenceList, source="gene")
-                                        #     for cohort in cohorts:
-                                        #         if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
-                                        #             earliest_cohort = cohort
-                                        #     # Detecting animal model
-                                        #     _animal_models = self.__get_animal_model(text, gene_entry.referenceList)
-                                        #     for animal_model in _animal_models:
-                                        #         if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
-                                        #             earliest_animal = animal_model
-                                                    
-                                                    
-                        # if gene_entry.textSectionList:
-                        #     texts = gene_entry.textSectionList
-                        #     for text in texts:
-                        #         # Looking at Animal Model excerpt
-                        #         if text['textSection']['textSectionName'] == 'animalModel':
-                        #             anim_paras = text['textSection']['textSectionContent'].split(
-                        #                 '\n\n')
-                        #             for p in anim_paras:
-                        #                 _animal_models = self.__get_animal_model(p, gene_entry.referenceList)
-                        #                 for animal_model in _animal_models:
-                        #                     if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
-                        #                         earliest_animal = animal_model
-
-                        # if earliest_cohort:
-                        #     item.cohort = earliest_cohort
-                        # if earliest_animal:
-                        #     item.animal_model = earliest_animal
-                        if earliest_evidence:
-                            item.evidence = earliest_evidence
-
+                                if 'animal' in detect and earliest_animal == None:
+                                    earliest_animal = self.__get_animal_model(allele['allelicVariant']['text'], gene_entry.referenceList, anchor_location, section_name='allelicVariant')
+                                    
+                                # Cohort
+                                if 'cohort' in detect and earliest_cohort == None:
+                                    text = allele['allelicVariant']['text'].replace('al.', 'al')
+                                    cohorts, tcs = self.__get_cohorts(text, gene_entry.referenceList, source="allelicVariant")
+                                    total_cohort_size += tcs
+                                    for cohort in cohorts:
+                                        if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
+                                            earliest_cohort = cohort
+                                # text = allele['allelicVariant']['text'].replace('\n\n', ' ')
+                                # text = text.replace('al.', 'al')
+                                # if str(pheno_mim) in text:
+                                #     # Detecting cohort descriptoion
+                                #     cohorts = self.__get_cohorts(text, gene_entry.referenceList, source="gene")
+                                #     for cohort in cohorts:
+                                #         if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
+                                #             earliest_cohort = cohort
+                                
+                                # TODO  DELETE THIS SECTION
+                                    # text = allele['allelicVariant']['text'].replace(
+                                    #     '\n\n', ' ')
+                                    # text = text.replace('al.', 'al')
+                                    # if str(pheno_mim) in text:
+                                    #     # Detecting cohort descriptoion
+                                    #     cohorts = self.__get_cohorts(text, gene_entry.referenceList, source="gene")
+                                    #     for cohort in cohorts:
+                                    #         if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
+                                    #             earliest_cohort = cohort
+                                    #     # Detecting animal model
+                                    #     _animal_models = self.__get_animal_model(text, gene_entry.referenceList)
+                                    #     for animal_model in _animal_models:
+                                    #         if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
+                                    #             earliest_animal = animal_model
+                                                
+                                                
+                    # if gene_entry.textSectionList:
+                    #     texts = gene_entry.textSectionList
+                    #     for text in texts:
+                    #         # Looking at Animal Model excerpt
+                    #         if text['textSection']['textSectionName'] == 'animalModel':
+                    #             anim_paras = text['textSection']['textSectionContent'].split(
+                    #                 '\n\n')
+                    #             for p in anim_paras:
+                    #                 _animal_models = self.__get_animal_model(p, gene_entry.referenceList)
+                    #                 for animal_model in _animal_models:
+                    #                     if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
+                    #                         earliest_animal = animal_model
+                    if 'cohort' in detect and cohorts:
+                        item.all_cohorts = cohorts
+                        item.total_cohort_size = total_cohort_size
+                    if 'cohort' in detect and earliest_cohort:
+                        item.cohort = earliest_cohort
+                    if 'animal' in detect and earliest_animal:
+                        item.animal_model = earliest_animal
+                    if 'association' in detect and earliest_evidence:
+                        item.evidence = earliest_evidence
+                    if 'all' in detect:
+                        item.gpad_updated = pendulum.now()
+                    if dry_run == False:
                         item.save()
         else:
             logging.debug(f"GeneMap/Entry unavailable for Gene MIM {item.gene_mimNumber}")
 
-    def extract_and_save(self, gene_entry, item):
-        # def extract_and_save(self, gene_mim, pheno_mim, item):
 
-        # gene_entry = GeneEntry.object(mimNumber=int(gene_mim))
 
-        # pheno_entry = GeneEntry.object(mimNumber=int(pheno_mim))
-
-        # Storing basic information
-        item['_id'] = gene_entry._id
-        item["gene_mim_id"] = gene_entry.mimNumber
-        item['prefix'] = gene_entry.prefix
-        if 'geneMap' in gene_entry and 'geneSymbols' in gene_entry.geneMap:
-            item["gene_symbols"] = gene_entry.geneMap['geneSymbols']
-        if 'geneMap' in gene_entry and 'geneName' in gene_entry.geneMap:
-            item["gene_name"] = gene_entry.geneMap['geneName']
-        logging.debug(gene_entry.mimNumber)
-        item["date_created"] = gene_entry.dateCreated
-        item["date_updated"] = gene_entry.dateUpdated
-        item["mtg_created"] = gene_entry.mtgCreated
-        item["mtg_updated"] = datetime.now()
-        item["edit_history"] = []
-        # TODO: change to regex
-        edit_history = self.nlp(gene_entry.editHistory.replace('\n', ' '))
-        for ent in edit_history.ents:
-            if ent.label_ == 'DATE':
-                edit_date = re.match(self.date_regex, ent.text)
-                if edit_date:
-                    item["edit_history"].append(
-                        str(parser.parse(edit_date.group())))
-
-        var_pheno_assoc = []
-        organism_used = []
-        matcher_platforms = []
-
-        # Known Genotype-Phenotype relationships
-        phenos = []
-        _known_phenos = []
-        # TODOS
-        # ADD PREFIX FILTER
-        ##
-        if gene_entry.geneMap is not None and 'phenotypeMapList' in gene_entry.geneMap:
-            known_phenotypes = gene_entry.geneMap['phenotypeMapList']
-            for p in known_phenotypes:
-                phenotype_check = False
-                animal_models = []
-                pubs = []
-                allelic_variants = []
-                population = []
-                cohorts = []
-                if 'phenotypeInheritance' in p['phenotypeMap'] \
-                        and 'phenotype' in p['phenotypeMap'] and p['phenotypeMap']['phenotype'] \
-                        and p['phenotypeMap']['phenotypeInheritance']:
-                    phenotype_name = p['phenotypeMap']['phenotype']
-                    inheritance = p['phenotypeMap']['phenotypeInheritance']
-                    # Check if type of inheritance is Mendelian
-                    pits = inheritance.split(';')
-                    for pit in pits:
-                        # for pit.strip() in phenotype_inheritence_types:
-                        if pit.strip() in self.phenotype_inheritence_types:
-                            phenotype_check = True
-                            break
-                        # if phenotype_check:
-                        #     break
-                    # Check if there is a clear association
-                    for ip in self.ignore_phenotypes:
-                        if ip in phenotype_name:
-                            phenotype_check = False
-                            break
-                    if phenotype_check:
-                        pheno = Phenotype()
-                        pheno_mim = None
-                        if 'phenotype' in p['phenotypeMap']:
-                            pheno['phenotype'] = phenotype_name
-                        if 'phenotypeMimNumber' in p['phenotypeMap']:
-                            pheno_mim = p['phenotypeMap']['phenotypeMimNumber']
-                            pheno['mim_number'] = pheno_mim
-                            logging.debug(f"Pheno: {pheno_mim}")
-                            _known_phenos.append(pheno_mim)
-                        if 'phenotypeMappingKey' in p['phenotypeMap']:
-                            pheno['mapping_key'] = p['phenotypeMap']['phenotypeMappingKey']
-                            # Look at the phenotype for extractable information
-                            pheno_entry = GeneEntry.objects(
-                                mimNumber=pheno_mim).first()
-                            if pheno_entry:
-                                pheno['prefix'] = pheno_entry['prefix']
-
-                                # Detecting matcher platform from the phenotype entry
-                                # NOTE: Might not be good for genetically heterogenious phenotypes
-                                pheno_text = ' '.join(t['textSection']['textSectionContent'].replace(
-                                    '\n\n', ' ') for t in pheno_entry.textSectionList)
-
-                                cohorts = self.__get_cohorts(pheno_text, pheno_entry.referenceList, source="phenotype")
-
-                                _matcher_platforms = self.__get_matcher_platform(pheno_text, pheno_entry.referenceList)
-                                for m in _matcher_platforms:
-                                    if m not in matcher_platforms:
-                                        matcher_platforms.append(m)
-
-                                # Detecting animal model
-                                for pheno_text in pheno_entry.textSectionList:
-                                    if pheno_text['textSection']['textSectionName'] == 'animalModel':
-                                        anim_paras = pheno_text['textSection']['textSectionContent'].split(
-                                            '\n\n')
-                                        for p in anim_paras:
-                                            _animal_models = self.__get_animal_model(p, pheno_entry.referenceList)
-                                            for animal_model in _animal_models:
-                                                if animal_model not in animal_models:
-                                                    animal_models.append(animal_model)
-                                                if animal_model not in organism_used:
-                                                    organism_used.append(animal_model)
-                                    # Looking at Molecular Genetics excerpt
-                                    if pheno_text['textSection']['textSectionName'] == 'molecularGenetics':
-                                        text = pheno_text['textSection']['textSectionContent']
-                                        earliest_pub = self.__earliest_ref_from_text(
-                                            gene_entry.mimNumber, text, pheno_entry.referenceList)
-                                        logging.debug(earliest_pub)
-                                        # if earliest_pub != None:
-                                        #     mol_gen = MolGenItem()
-                                        #     mol_gen.referred_entry = gene_entry.mimNumber
-                                        #     mol_gen.publication_evidence = earliest_pub
-                                        #     pheno['molecular_genetics'] = mol_gen
-
-                        # Check Allelic variants' text for the gene
-                        for allele in gene_entry.allelicVariantList:
-                            if 'text' in allele['allelicVariant']:
-                                earliest_pub = self.__earliest_ref_from_text(
-                                    pheno_mim, allele['allelicVariant']['text'], gene_entry.referenceList)
-                                if earliest_pub != None:
-                                    if earliest_pub not in pubs:
-                                        pubs.append(earliest_pub)
-                                    av = AllelicVariant()
-                                    if 'name' in allele['allelicVariant']:
-                                        av['name'] = allele['allelicVariant']['name']
-                                    av['publication_evidences'] = [earliest_pub]
-
-                                    text = allele['allelicVariant']['text'].replace(
-                                        '\n\n', ' ')
-                                    text = text.replace('al.', 'al')
-                                    if str(pheno_mim) in text:
-                                        # doc = self.nlp(text)
-                                        # Detecting cohort descriptoion
-                                        # _cohorts = self.__get_cohorts(text, gene_entry.referenceList, source="gene")
-                                        # for _c in _cohorts:
-                                        #     if _c not in cohorts:
-                                        #         cohorts.append(_c)
-                                        # av['cohorts'] = _cohorts
-
-                                        # Detecting matcher platform from gene entry
-                                        # _matcher_platforms = self.__get_matcher_platform(text, gene_entry.referenceList)
-                                        # for m in _matcher_platforms:
-                                        #     if m not in matcher_platforms:
-                                        #         matcher_platforms.append(m)
-                                        # av['matcher_platforms'] = _matcher_platforms
-
-                                        # Detecting populations
-                                        # for ent in doc.ents:
-                                        #     if ent.label_ == 'NORP':
-                                        #         population.append(ent.text)
-
-                                        # Detecting publication evidence
-                                        # av['publication_evidences'] = []
-                                        # pub_ref_ids = self.__original_study_finder(doc)
-                                        # publication_matches = re.finditer(self.publication_regex, text)
-                                        # for pub_match in publication_matches:
-                                        #     sentence = doc.char_span(pub_match.start(0), pub_match.end(0),
-                                        #                             alignment_mode='expand').sent.text
-                                        #     same_sentence_pubs = re.finditer(self.publication_regex, sentence)
-                                        #     if same_sentence_pubs:
-                                        #         # print(sentence)
-                                        #         for proximal_match in same_sentence_pubs:
-                                        #             if proximal_match.group(3) > pub_match.group(3):
-                                        #                 pub_match = proximal_match
-                                        #             # print(proximal_match)
-                                        #     if pub_ref_ids and pub_match.group(1) in pub_ref_ids:
-                                        #         continue
-                                        #     pub = self.__create_publication_object_from_match(pub_match, gene_entry.referenceList)
-                                        #     if pub not in pubs:
-                                        #         pubs.append(pub)
-                                        #     if pub not in av['publication_evidences']:
-                                        #         av['publication_evidences'].append(pub)
-
-                                        # Detecting animal model
-                                        av['animal_models'] = []
-                                        _animal_models = self.__get_animal_model(text, gene_entry.referenceList)
-                                        for animal_model in _animal_models:
-                                            if animal_model not in animal_models:
-                                                animal_models.append(animal_model)
-                                            if animal_model not in organism_used:
-                                                organism_used.append(animal_model)
-                                            if animal_model not in av['animal_models']:
-                                                av['animal_models'].append(animal_model)
-                                    allelic_variants.append(av)
-
-                        if allelic_variants:
-                            pheno['allelic_variants'] = allelic_variants
-                        if pubs:
-                            pheno['publication_evidences'] = pubs
-                        if population:
-                            pheno['populations'] = list(set(population))
-                        if cohorts:
-                            pheno['cohorts'] = cohorts
-                        if animal_models:
-                            pheno['animal_models'] = animal_models
-                        if matcher_platforms:
-                            pheno['matcher_platforms'] = matcher_platforms
-                        phenos.append(pheno)
-
-        item["phenotypes"] = phenos
-
-        if gene_entry.textSectionList:
-            texts = gene_entry.textSectionList
-            for text in texts:
-                # Looking at Molecular Genetics excerpt
-                # if text['textSection']['textSectionName'] == 'molecularGenetics':
-                #     # earliest_pub = self.__earliest_ref_from_text()
-                #     mol_gen_paras = text['textSection']['textSectionContent'].split(
-                #         '\n\n')
-                #     mol_gen_flag = None
-                #     pubs = []
-                #     population = []
-                #     _phenos = []
-                # for p in mol_gen_paras:
-                #     doc = self.nlp(p)
-                #     # Detecting populations
-                #     for ent in doc.ents:
-                #         if ent.label_ == 'NORP':
-                #             population.append(ent.text)
-                #     for kp in _known_phenos:
-                #         if str(kp) in p:
-                #             _phenos.append(kp)
-                #     # Detecting publication evidence
-                #     publication_matches = re.finditer(self.publication_regex, p)
-                #     for pub_match in publication_matches:
-                #         pub = self.__create_publication_object_from_match(pub_match, entry.referenceList)
-                #         if pub not in pubs:
-                #             pubs.append(pub)
-                #     if '<Subhead>' in p:
-                #         if mol_gen_flag is not None or len(pubs) > 0:
-                #             mol_gen = MolGenItem()
-                #             mol_gen["section_title"] = mol_gen_flag
-                #             mol_gen["referred_entry"] = _phenos
-                #             mol_gen["publication_evidence"] = pubs
-                #             mol_gen["populations"] = list(set(population))
-                #             var_pheno_assoc.append(mol_gen)
-                #         mol_gen_flag = p.replace('<Subhead>', '').strip()
-                #         pubs = []
-                #         population = []
-                # if mol_gen_flag is None and len(pubs) > 0:
-                #     mol_gen = MolGenItem()
-                #     mol_gen["section_title"] = mol_gen_flag
-                #     mol_gen["referred_entry"] = _phenos
-                #     mol_gen["publication_evidence"] = pubs
-                #     mol_gen["populations"] = list(set(population))
-                #     var_pheno_assoc.append(mol_gen)
-                # Looking at Animal Model excerpt
-                if text['textSection']['textSectionName'] == 'animalModel':
-                    anim_paras = text['textSection']['textSectionContent'].split(
-                        '\n\n')
-                    for p in anim_paras:
-                        _animal_models = self.__get_animal_model(p, gene_entry.referenceList)
-                        for animal_model in _animal_models:
-                            if animal_model not in organism_used:
-                                organism_used.append(animal_model)
-
-        # item["molecular_genetics"] = var_pheno_assoc
-        item["animal_models"] = organism_used
-        item.save()
-
-    def curate(self, mims_to_curate: list, force_update: bool = False):
+    def curate(self, mims_to_curate: list, force_update: bool = False, detect: str = 'all', dry_run: bool = False):
         assocs = []
         if len(mims_to_curate):
             # entries = GeneEntry.objects(mimNumber__in=mims_to_curate)
@@ -744,7 +701,7 @@ class Curator:
         logging.debug(assocs)
         for assoc in tqdm(assocs, desc="Applying NLP!", colour="#fac45f"):
             if force_update or assoc.evidence == None or assoc.gpad_updated != assoc.gene_entry_fetched or assoc != assoc.pheno_entry_fetched:
-                self.process(assoc)
+                self.process(assoc, detect=detect, dry_run=dry_run)
 
 
         # entries = None

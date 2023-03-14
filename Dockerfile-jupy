@@ -1,0 +1,25 @@
+# This is a simple Dockerfile to use while developing
+# It's not suitable for production
+#
+# It allows you to run both flask and celery if you enabled it
+# for flask: docker run --env-file=.flaskenv image flask run
+# for celery: docker run --env-file=.flaskenv image celery worker -A myapi.celery_app:app
+#
+# note that celery will require a running broker and result backend
+FROM toluclassics/transformers_notebook
+
+# COPY --chown=${NB_UID}:${NB_GID} requirements.txt setup.py tox.ini /tmp/
+# RUN pip install -U pip
+# RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
+#     fix-permissions "${CONDA_DIR}" && \
+#     fix-permissions "/home/${NB_USER}"
+USER root
+COPY --chown=${NB_UID}:${NB_GID} requirements.txt /tmp/
+RUN pip install --quiet --no-cache-dir --requirement /tmp/requirements.txt && \
+    fix-permissions "${CONDA_DIR}" && \
+    fix-permissions "/home/${NB_USER}"
+RUN python -m spacy download en_core_web_sm
+
+USER jovyan
+
+EXPOSE 5000 5555 5001 8888
