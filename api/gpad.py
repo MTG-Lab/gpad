@@ -10,7 +10,6 @@ You should have received a copy of the license along with this program.
 
 
 from api.gene_discovery.displacy_visualizer import PatternLab
-from api.gene_discovery.model_copy import copy, pubmed_update
 import typer
 import logging
 import numpy as np
@@ -40,10 +39,6 @@ def lol():
     disconnect()
     connect(host=MONGO_URI)
     print(GeneEntry.objects[:2])
-
-@tpr.command()
-def cp():
-    pubmed_update()
 
 
 @tpr.command()
@@ -110,7 +105,7 @@ def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without
     
     # # Apply NLP
     curation = Curator()
-    curation.curate([], detect='all', force_update=True, dry_run=dry_run)
+    curation.curate([], detect='cohort', force_update=True, dry_run=dry_run)
     # curation.curate([400020], force_update=True)
     # curation.curate(extracted)
     

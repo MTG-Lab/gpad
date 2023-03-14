@@ -393,14 +393,21 @@ class Curator:
         
         return earliest_animal
         
-        
+    def __cohort_from_paragraph(self, paragraph, reference_list=None, section_name=None):
+        """Extract cohort from a paragraph
 
-    def __get_cohorts(self, text, reference_list=None, source='molecularGenetics'):
-        # Detecting patient information
+        Args:
+            paragraph (str): paragraph text
+            reference_list (list, optional): List of references. Defaults to None.
+            section_name (str, optional): Name of the OMIM's section. Defaults to None.
+
+        Returns:
+            list: List of cohort descriptions
+            int: Total size of detected cohorts
+        """
         cohorts = []
         total_cohort_size = 0
-        # total_unrelated_cohort_size = 0
-        doc = self.nlp(text)          # TODO: Also detect population here? making it attachable to the cohort info
+        doc = self.nlp(paragraph)
         patient_matches = self.cohort_matcher(doc)
         # logging.debug(patient_matches)
         # patient_matches = self.cohort_phrase_pattern(doc)
@@ -411,7 +418,7 @@ class Curator:
                 ignore = False
                 if match_id not in match_ids:
                     cohort = CohortDescription()
-                    cohort['source'] = source
+                    cohort['source'] = section_name
                     # is_unrelated = False
                     for i in range(len(token_ids)):
                         if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'anchor_patients':
@@ -441,7 +448,38 @@ class Curator:
         # print("cohort end")
         logging.debug(total_cohort_size)
         # logging.debug(total_unrelated_cohort_size)
-        return cohorts, total_cohort_size #, total_unrelated_cohort_size
+        return cohorts, total_cohort_size
+        
+
+    def __get_cohorts(self, text, reference_list=None, source='molecularGenetics'):
+        """ Extract cohorts from a text. Texts can have paragraphs separated by two new lines.
+        
+        Args:
+            text (str): Text to extract cohorts from
+            reference_list (list, optional): List of references. Defaults to None.
+            source (str, optional): Source of the text. Defaults to 'molecularGenetics'.
+        
+        Returns:
+            list: List of cohorts
+            int: Total size of detected cohorts
+        """
+        # Detecting patient information
+        cohorts = []
+        total_cohort_size = 0
+        text = text.replace('al.', 'al')
+        p_start = 0
+        p_end = text.find('\n\n')        
+        while p_end != -1:
+            p_start = p_end+1
+            p_end = text.find('\n\n', p_start)
+            if p_end == -1:
+                paragraph = text[p_start:len(text)]
+            else:
+                paragraph = text[p_start:p_end]
+            _cohorts, _total_cohort_size = self.__cohort_from_paragraph(paragraph, reference_list, source)
+            cohorts += _cohorts
+            total_cohort_size += _total_cohort_size                
+        return cohorts, total_cohort_size
 
     def __earliest_ref_from_text(self, query: str, text: str, reference_list: list, sync_matcher=None):
         """Get earliest publication reference by searching for specific text in large text.
@@ -598,7 +636,6 @@ class Curator:
                                     earliest_animal = self.__get_animal_model(text, pheno_entry.referenceList, anchor_location, section_name='molecularGenetics')
                                 # Cohort
                                 if 'cohort' in detect and earliest_cohort == None:
-                                    text = text.replace('al.', 'al')
                                     cohorts, tcs = self.__get_cohorts(text, pheno_entry.referenceList, source="molecularGenetics")
                                     total_cohort_size += tcs
                                     for cohort in cohorts:
@@ -626,7 +663,7 @@ class Curator:
                                     
                                 # Cohort
                                 if 'cohort' in detect and earliest_cohort == None:
-                                    text = allele['allelicVariant']['text'].replace('al.', 'al')
+                                    text = allele['allelicVariant']['text']
                                     cohorts, tcs = self.__get_cohorts(text, gene_entry.referenceList, source="allelicVariant")
                                     total_cohort_size += tcs
                                     for cohort in cohorts:
