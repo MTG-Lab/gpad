@@ -45,7 +45,7 @@ def lol():
 def lab():
     
     pl = PatternLab()
-    entries = GeneEntry.objects[:200]
+    entries = GeneEntry.objects[:20]
     # entries = GeneEntry.objects(mimNumber__in=[616576, 300438])
     for entry in tqdm(entries):
         # for allele in entry.allelicVariantList:
@@ -59,14 +59,14 @@ def lab():
                 logging.debug(text)
                 # text = re.sub(Curator.publication_regex, mask_citation, text)
                 logging.debug(entry.mimNumber)
-                logging.debug(text)
-                matches = pl.match(text)
-                if matches:
-                    for m in matches:
-                        logging.debug(m)
-                logging.debug(matches)
-                # if entry.mimNumber == 300438:
-                # pl.show(text)
+                # logging.debug(text)
+                matches = pl.vm(text)
+                # if matches:
+                #     for m in matches:
+                #         logging.debug(m)
+                # logging.debug(matches)
+                # # if entry.mimNumber == 300438:
+                # # pl.show(text)
 
 
 
@@ -105,7 +105,7 @@ def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without
     
     # # Apply NLP
     curation = Curator()
-    curation.curate([], detect='cohort', force_update=True, dry_run=dry_run)
+    curation.curate([], detect='all', force_update=True, dry_run=dry_run)
     # curation.curate([400020], force_update=True)
     # curation.curate(extracted)
     

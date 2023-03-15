@@ -42,7 +42,7 @@ class Curator:
         "Danio rerio", "Zebra fish", "zebrafish",
         "Mus musculus", "mouse", "mice",
         "Rattus norvegicus", "rat", "rats", "rodent", "avian", "Xenopus", "cattle", "bull", "chicken", "dog"
-    ]  # TODO: Plural forms
+    ]
     ignore_phenotypes = ['[', '{', '?', 'susceptibility', 'modifier']
     phenotype_inheritence_types = [
         'Autosomal dominant', 'Autosomal recessive', 'Pseudoautosomal dominant', 'Pseudoautosomal recessive',

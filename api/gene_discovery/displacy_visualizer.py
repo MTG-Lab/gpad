@@ -189,13 +189,55 @@ class PatternLab:
             "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
         },
     ]
+    cohort_phrase_pattern_3 = [
+        {
+            "RIGHT_ID": "anchor_patients",
+            "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "people", "infant", "woman", "man"]}, "POS": "NOUN"}
+        },
+        {
+            "LEFT_ID": "anchor_patients",
+            "REL_OP": ">",
+            "RIGHT_ID": "patient_count",
+            "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
+        },
+    ]
+    
+    
+    original_study_pattern = [
+        {
+            "RIGHT_ID": "anchor_verb",
+            "RIGHT_ATTRS": {"POS": "VERB"}  # "LEMMA": {"IN": ["describe", "report", "study", "diagnose", "find"]},
+        },
+        {
+            "LEFT_ID": "anchor_verb",
+            "REL_OP": ">",
+            "RIGHT_ID": "origin_modifier",
+            # "LEMMA": {"IN": ["originally", "previously"]},
+            "RIGHT_ATTRS": {"POS": "ADV", "DEP": "advmod", "LEMMA": {"NOT_IN": ["later", "recent"]}}
+        },
+        {
+            "LEFT_ID": "anchor_verb",
+            "REL_OP": ">",
+            "RIGHT_ID": "agent_modifier",
+            "RIGHT_ATTRS": {"POS": "ADP", "DEP": "agent"}
+        },
+        {
+            "LEFT_ID": "agent_modifier",
+            "REL_OP": ">",
+            "RIGHT_ID": "agent",
+            "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "pobj", "POS": "NUM"},
+        },
+    ]
+    
     
     def __init__(self) -> None:    
         # matcher.add("PATIENTS", [pattern])
         # self.matcher.add("ORIGINAL_STUDY", [self.pattern_1], on_match=self.on_match)
         # self.matcher.add("ORIGINAL_STUDY_EXT_1", [self.pattern_2], on_match=self.on_match)
         # self.matcher.add("ORIGINAL_STUDY_EXT_2", [self.pattern_3], on_match=self.on_match)
-        self.matcher.add("COHORT", [self.cohort_phrase_pattern_2], on_match=self.on_cohort_match)
+        self.matcher.add("COHORT", [self.cohort_phrase_pattern_3])
+        # self.matcher.add("COHORT", [self.original_study_pattern])
+        # self.matcher.add("COHORT", [self.cohort_phrase_pattern_2], on_match=self.on_cohort_match)
 
     def show(self, text):
         ss = self.nlp(text).sents
@@ -211,7 +253,17 @@ class PatternLab:
         #     for i in range(len(token_ids)):
         #         _match_text.append(doc[token_ids[i]])
         #     logging.debug(_match_text)
-            
+
+    def vm(self, text):
+        doc = self.nlp(text)
+        matches = self.matcher(doc)
+        text = []
+        # iterate over the matches
+        for match_id, token_ids in matches:
+            _match_text = []
+            for i in range(len(token_ids)):
+                _match_text.append(doc[token_ids[i]].text)
+            logging.debug(" ".join(_match_text))
         
     def on_match(self, matcher, doc, match_id, matches):
         string_id = doc.vocab.strings[match_id]
