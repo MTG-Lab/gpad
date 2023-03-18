@@ -257,24 +257,6 @@ class Curator:
         pub["pub_date"] = self.pmid_to_date(pmid)
         return pub
 
-    def __get_matcher_platform(self, text, reference_list=None):
-        matcher_platforms = []
-        doc = self.nlp(text)
-        matches = self.matcher_platform_matcher(doc)
-        if matches:
-            for match_id, start, end in matches:
-                nearest_pub = self.__nearest_publication_detector(
-                    doc.text, doc[start:end].start_char)
-                if nearest_pub:
-                    matcher_platform = MatcherPlatform()
-                    matcher_platform['platform_name'] = doc[start:end].text
-                    matcher_platform['publication_evidence'] = self.__create_publication_object_from_match(
-                        nearest_pub, reference_list)
-                    if matcher_platform not in matcher_platforms:
-                        matcher_platforms.append(
-                            matcher_platform)
-        return matcher_platforms
-    
     def __closest_animal_model(self, doc, ref_position=0):
         """Get closest animal model and the closest citation to it.
 
