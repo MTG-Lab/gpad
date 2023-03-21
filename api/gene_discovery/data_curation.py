@@ -33,6 +33,7 @@ class Curator:
     publication_regex = r"([0-9]{1,}):([a-zA-Z0-9' \/-]{3,}\.?),?\ [\(]?([0-9]{4})[\)]?"
     publication_mask = r"\{REF#([0-9]{1,})\}"
     date_regex = r"^\d{1,2}\/\d{1,2}\/\d{4}$"
+    determinant = ["a", "an"]
     detection_modules = ['basic','association','animal','cohort']
     animal_models = [
         "Saccharomyces cerevisiae", "S. cerevisiae", "Yeast",
@@ -43,12 +44,56 @@ class Curator:
         "Mus musculus", "mouse", "mice",
         "Rattus norvegicus", "rat", "rats", "rodent", "avian", "Xenopus", "cattle", "bull", "chicken", "dog"
     ]
+    animal_model_types = {
+        "Yeast": ["Saccharomyces cerevisiae", "S. cerevisiae", "Yeast"],
+        "Drosophila": ["Drosophila melanogaster", "D. melanogaster", "Drosophila", "Fruit fly"],
+        "C. elegans": ["Caenorhabditis elegans", "C. elegans", "Roundworm", "worm", "worms"],
+        "Zebrafish": ["Danio rerio", "Zebra fish", "zebrafish"],
+        "Mouse": ["Mus musculus", "mouse", "mice"],
+        "Rat": ["Rattus norvegicus", "rat", "rats", "rodent"],
+        "Others": ["Pisum sativum", "Pea plant", "avian", "Xenopus", "cattle", "bull", "chicken", "dog"]
+    }
     ignore_phenotypes = ['[', '{', '?', 'susceptibility', 'modifier']
     phenotype_inheritence_types = [
         'Autosomal dominant', 'Autosomal recessive', 'Pseudoautosomal dominant', 'Pseudoautosomal recessive',
         'X-linked', 'X-linked dominant', 'X-linked recessive', 'Y-linked']
     matcher_platform = ["GeneMatcher", "Matchmaker", "DECIPHER",
                         "IRUD", "MyGene2", "PatientMatcher", "PhenomeCentral", ]
+    
+    cohort_pattern = {
+        "cohort_pattern": [
+            {
+                "RIGHT_ID": "anchor_patients",
+                "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "member", "people", "infant", "woman", "man"]}, "POS": "NOUN"}
+            },
+            {
+                "LEFT_ID": "anchor_patients",
+                "REL_OP": ">",
+                "RIGHT_ID": "patient_modifier",
+                "RIGHT_ATTRS": {"LEMMA": {"IN": ["independent", "separate", "unrelated", "more", "different", "new", "sporadic", "further", "additional", "other", "affected"]},
+                                "DEP": "amod", "POS": "ADJ",
+                                "ENT_TYPE": {"NOT_IN": ["NORP"], }}
+            },
+            {
+                "LEFT_ID": "anchor_patients",
+                "REL_OP": ">",
+                "RIGHT_ID": "patient_count",
+                "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
+            },
+        ],
+        "cohort_with_det": [
+                {
+                    "RIGHT_ID": "anchor_patients",
+                    "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "affected", "people", "infant", "woman", "man"]}, "POS": "NOUN"}
+                },
+                {
+                    "LEFT_ID": "anchor_patients",
+                    "REL_OP": ">",
+                    "RIGHT_ID": "patient_count",
+                    "RIGHT_ATTRS": {"DEP": "det", "POS": "DET", "LEMMA": {"IN": ["a", "an"]}},
+                },
+        ]
+    }
     # cohort_phrase_pattern = [
     #     {
     #         "RIGHT_ID": "anchor_patients",
@@ -114,7 +159,8 @@ class Curator:
         self.nlp = spacy.load("en_core_web_sm")
         # Cohort
         self.cohort_matcher = DependencyMatcher(self.nlp.vocab)
-        self.cohort_matcher.add("Cohort", [self.cohort_phrase_pattern])
+        self.cohort_matcher.add("Cohort", [self.cohort_pattern["cohort_pattern"]])
+        self.cohort_matcher.add("CohortDet", [self.cohort_pattern["cohort_with_det"]])
         # Unrelated Patient
         # self.unrelated_cohort_matcher = DependencyMatcher(self.nlp.vocab)
         # self.unrelated_cohort_matcher.add("UnrelatedCohort", [self.unrelated_cohort_phrase_pattern])
@@ -257,6 +303,20 @@ class Curator:
         pub["pub_date"] = self.pmid_to_date(pmid)
         return pub
 
+    def __animal_model_type(self, name):
+        """Get animal model type from the name.
+
+        Args:
+            name (str): animal model name
+
+        Returns:
+            str: animal model type
+        """
+        for key, val in self.animal_model_types.items():
+            if name.lower() in val:
+                return key
+        return name
+
     def __closest_animal_model(self, doc, ref_position=0):
         """Get closest animal model and the closest citation to it.
 
@@ -342,7 +402,7 @@ class Curator:
                     if earliest_animal == None or int(pub.year) < int(earliest_animal.publication_evidence.year):
                         earliest_ref = pub
                         earliest_animal = AnimalModelsItem()
-                        earliest_animal.animal_name = mo
+                        earliest_animal.animal_name = self.__animal_model_type(mo)
                         earliest_animal.section_title = section_name
                         earliest_animal.publication_evidence = pub
         # If no animal model found in the paragraph of the reference, search in the whole text
@@ -359,21 +419,11 @@ class Curator:
                             earliest_ref = pub
                             paragraph = p
                             earliest_animal = AnimalModelsItem()
-                            earliest_animal.animal_name = mo
+                            earliest_animal.animal_name = self.__animal_model_type(mo)
                             earliest_animal.section_title = section_name
-                            earliest_animal.publication_evidence = pub
-                        
-            # if known_publication == None and mo != None:
-            #     nearest_pub_match = self.__nearest_publication_detector(text, ref_start)
-            #     if nearest_pub_match:
-            #         known_publication = self.__create_publication_object_from_match(nearest_pub_match, reference_list)
-            # if known_publication != None:
-            #     earliest_animal = AnimalModelsItem()
-            #     earliest_animal.animal_name = mo
-            #     earliest_animal.section_title = section_name
-            #     earliest_animal.publication_evidence = known_publication
-        
+                            earliest_animal.publication_evidence = pub        
         return earliest_animal
+        
         
     def __cohort_from_paragraph(self, paragraph, reference_list=None, section_name=None):
         """Extract cohort from a paragraph
@@ -382,6 +432,7 @@ class Curator:
             paragraph (str): paragraph text
             reference_list (list, optional): List of references. Defaults to None.
             section_name (str, optional): Name of the OMIM's section. Defaults to None.
+            known_publication (Publication, optional): If already known, the publication reference.
 
         Returns:
             list: List of cohort descriptions
@@ -393,7 +444,6 @@ class Curator:
         patient_matches = self.cohort_matcher(doc)
         # logging.debug(patient_matches)
         # patient_matches = self.cohort_phrase_pattern(doc)
-        # logging.debug(up_matches)
         if patient_matches:
             match_ids = []
             for match_id, token_ids in patient_matches:
@@ -401,22 +451,24 @@ class Curator:
                 if match_id not in match_ids:
                     cohort = CohortDescription()
                     cohort['source'] = section_name
-                    # is_unrelated = False
+                    _chrt_pat_name = 'cohort_pattern'
+                    if len(token_ids) == 2:
+                        _chrt_pat_name = 'cohort_with_det'
                     for i in range(len(token_ids)):
-                        if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'anchor_patients':
+                        if self.cohort_pattern[_chrt_pat_name][i]["RIGHT_ID"] == 'anchor_patients':
                             cohort['cohort_type'] = doc[token_ids[i]].text
-                        if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'patient_modifier':
+                        if self.cohort_pattern[_chrt_pat_name][i]["RIGHT_ID"] == 'patient_modifier':
                             cohort['cohort_relation'] = doc[token_ids[i]].text
-                            # is_unrelated = True
-                        if self.cohort_phrase_pattern[i]["RIGHT_ID"] == 'patient_count':
+                        if self.cohort_pattern[_chrt_pat_name][i]["RIGHT_ID"] == 'patient_count':
                             try:
-                                cohort['cohort_count'] = w2n.word_to_num(doc[token_ids[i]].text.replace(',',''))
+                                if doc[token_ids[i]].text in ['a','an']:
+                                    cohort['cohort_count'] = 1
+                                else:
+                                    cohort['cohort_count'] = w2n.word_to_num(doc[token_ids[i]].text.replace(',',''))
                                 if cohort['cohort_count'] > self.max_cohort_size:
                                     ignore = True
                                     break
                                 total_cohort_size += cohort['cohort_count']
-                                # if is_unrelated:
-                                # total_unrelated_cohort_size += cohort['cohort_count']
                             except:
                                 cohort['cohort_count'] = -1
                                 logging.warning(f"Cohort count failed: {doc[token_ids[i]].text}")
@@ -427,41 +479,82 @@ class Curator:
                             cohort['publication_evidence'] = self.__create_publication_object_from_match(nearest_pub, reference_list)
                             cohorts.append(cohort)
                         match_ids.append(match_id)
-        # print("cohort end")
-        logging.debug(total_cohort_size)
-        # logging.debug(total_unrelated_cohort_size)
+        logging.debug(f"Total Cohort Size: {total_cohort_size}")
         return cohorts, total_cohort_size
         
 
-    def __get_cohorts(self, text, reference_list=None, source='molecularGenetics'):
+    def __get_cohorts(self, text, reference_list=None, ref_start_position=0, known_publication=None, section_name='molecularGenetics', ):
         """ Extract cohorts from a text. Texts can have paragraphs separated by two new lines.
         
         Args:
             text (str): Text to extract cohorts from
             reference_list (list, optional): List of references. Defaults to None.
-            source (str, optional): Source of the text. Defaults to 'molecularGenetics'.
+            ref_start_position (int, optional): Reference start position of the text.
+                            This position will be taken into account when searching for the animal model.
+                            Defaults to 0.
+            known_publication (Publication, optional): If already known, the publication reference. 
+                            Otherwise this function will detect. Defaults to None.
+            section_name (str, optional): Source of the text. Defaults to 'molecularGenetics'.
         
         Returns:
             list: List of cohorts
             int: Total size of detected cohorts
         """
-        # Detecting patient information
         cohorts = []
+        earliest_cohort = None
         total_cohort_size = 0
         text = text.replace('al.', 'al')
         p_start = 0
-        p_end = text.find('\n\n')        
-        while p_end != -1:
-            p_start = p_end+1
-            p_end = text.find('\n\n', p_start)
-            if p_end == -1:
-                paragraph = text[p_start:len(text)]
-            else:
-                paragraph = text[p_start:p_end]
-            _cohorts, _total_cohort_size = self.__cohort_from_paragraph(paragraph, reference_list, source)
+        paras = text.split('\n\n')
+        already_found = False
+        
+        if ref_start_position > 0:
+            # Detecting the paragraph span of the reference position
+            p_start = 0
+            p_end = text.find('\n\n')        
+            while p_end < ref_start_position:
+                p_start = p_end+1
+                p_end = text.find('\n\n', p_start)
+                if p_end == -1:
+                    p_end = len(text)
+                    break
+                # logging.debug(f"p_start: {p_start}, p_end: {p_end}")
+                # logging.debug(f"Paragraph evaluating: {text[p_start:p_end]}")
+            # reletive_ref_start = ref_start_position - p_start
+            paragraph = text[p_start:p_end]
+            _cohorts, _total_cohort_size = self.__cohort_from_paragraph(paragraph, reference_list, section_name)
             cohorts += _cohorts
-            total_cohort_size += _total_cohort_size                
-        return cohorts, total_cohort_size
+            total_cohort_size += _total_cohort_size
+            # check if the cohort has same publication as the already known publication
+            if _cohorts != None:
+                for cohort in _cohorts:
+                    if cohort.publication_evidence.pmid == known_publication.pmid:
+                        earliest_cohort = cohort
+                        break
+        # If no cohort study found in the paragraph of the reference, search in the whole text
+        if earliest_cohort == None:
+            for paragraph in paras:
+                if already_found == False:
+                    _cohorts, _total_cohort_size = self.__cohort_from_paragraph(paragraph, reference_list, section_name)
+                    cohorts += _cohorts
+                    total_cohort_size += _total_cohort_size
+                    # check if the cohort has same publication as the already known publication
+                    if _cohorts != None and known_publication != None:
+                        for cohort in _cohorts:
+                            if already_found == False and cohort.publication_evidence != None and cohort.publication_evidence.pmid == known_publication.pmid:
+                                earliest_cohort = cohort
+                                already_found = True
+                                break
+        
+        # If not found by reference matching above, get latest cohort study
+        if earliest_cohort == None:
+            for cohort in cohorts:
+                if earliest_cohort == None:
+                    earliest_cohort = cohort
+                elif int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
+                    earliest_cohort = cohort
+        return earliest_cohort, cohorts, total_cohort_size
+
 
     def __earliest_ref_from_text(self, query: str, text: str, reference_list: list, sync_matcher=None):
         """Get earliest publication reference by searching for specific text in large text.
@@ -506,22 +599,27 @@ class Curator:
     
 
     def process(self, item: AssociationInformation, detect='all', dry_run=False):
-    # def process(self, gene_entry):
-        # Known Genotype-Phenotype relationships
-        _known_phenos = []
+        """Update AssociationInformation with information extracted from related the OMIM entries.
+
+        Args:
+            item (AssociationInformation): Item to update
+            detect (str, optional): What modeule/groups of information to update. Defaults to 'all'.
+            dry_run (bool, optional): Run without saving it into database. Defaults to False.
+        """
         if detect == 'all':
             detect = self.detection_modules
-        gene_entry = GeneEntry.objects(mimNumber=item.gene_mimNumber).order_by('-mtgUpdated').first()
+        gene_entry = GeneEntry.objects(mimNumber=item.gene_mimNumber).order_by('-mtgUpdated').first()        
         
-        
-        # TODOS ADD PREFIX FILTER
         if gene_entry and gene_entry.geneMap is not None and 'phenotypeMapList' in gene_entry.geneMap:
             logging.debug(f"Analyzing gene: {item.gene_mimNumber}")
             known_phenotypes = gene_entry.geneMap['phenotypeMapList']
             for p in known_phenotypes:
                 cohorts = []
+                paragraph = None
+                anchor_location = 0
                 total_cohort_size = 0
                 earliest_evidence = None
+                known_publication = None
                 earliest_animal = None
                 earliest_cohort = None
                 if 'phenotypeInheritance' in p['phenotypeMap'] \
@@ -532,15 +630,6 @@ class Curator:
                             
                     if 'basic' in detect:
                         phenotype_name = p['phenotypeMap']['phenotype']
-                        # inheritance = p['phenotypeMap']['phenotypeInheritance']
-                        # # Check if type of inheritance is Mendelian
-                        # pits = inheritance.split(';')
-                        # for pit in pits:
-                        #     if pit.strip() in self.phenotype_inheritence_types:
-                        #         phenotype_check = True
-                        #         break
-                        
-                        # Check if there is a clear association
                         for ip in self.ignore_phenotypes:
                             if ip in phenotype_name:
                                 item.phenotype_marked_with = ip
@@ -555,17 +644,14 @@ class Curator:
                         if 'geneMap' in gene_entry and 'geneName' in gene_entry.geneMap:
                             item.gene_name = gene_entry.geneMap['geneName']
                     
-                    # Look at the phenotype for available information
+                    ####### Look at the phenotype for available information ########
                     pheno_entry = GeneEntry.objects(mimNumber=pheno_mim).first()
                     if pheno_entry:
                         if 'basic' in detect:
                             item.pheno_prefix = pheno_entry.prefix
-
-                        # Detecting animal model
-                        # TODO: Sync with allelic variant's MO section
                         for pheno_text in pheno_entry.textSectionList:
                             
-                            # Looking at Phenotype's Animal Model excerpt for model organism study
+                            ####### Looking at Phenotype's Animal Model excerpt for model organism study #######
                             if 'animal' in detect and pheno_text['textSection']['textSectionName'] == 'animalModel':
                                 logging.debug('----Animal Model----')
                                 text = pheno_text['textSection']['textSectionContent']
@@ -579,22 +665,8 @@ class Curator:
                                     earliest_animal = self.__get_animal_model(paragraph, pheno_entry.referenceList, anchor_location, earliest_mo_pub, section_name='animalModel')
                                 else:
                                     earliest_animal = self.__get_animal_model(text, pheno_entry.referenceList, section_name='animalModel')
-                                
-                                # TODO - DELETE THIS SECTION
-                                # anim_paras = pheno_text['textSection']['textSectionContent'].split(
-                                #     '\n\n')
-                                # for p in anim_paras:
-                                #     _animal_models = self.__get_animal_model(p, pheno_entry.referenceList)
-                                #     for animal_model in _animal_models:
-                                #         if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
-                                #             earliest_animal = animal_model
-                                #             # if earliest_animal.publication_evidence.year < int(earliest_evidence.publication_evidence.year):
-                                #             #     earliest_evidence = Evidence()
-                                #             #     earliest_evidence.section_title = 'animalModel'
-                                #             #     earliest_evidence.referred_entry = 0
-                                #             #     earliest_evidence.publication_evidence = earliest_animal.publication_evidence
 
-                            # Looking at Phenotype's Molecular Genetics for information
+                            ####### Looking at Phenotype's Molecular Genetics for information #######
                             if earliest_evidence == None and pheno_text['textSection']['textSectionName'] == 'molecularGenetics':
                                 logging.debug('----MOL-GEN----')
                                 text = pheno_text['textSection']['textSectionContent']
@@ -618,20 +690,21 @@ class Curator:
                                     earliest_animal = self.__get_animal_model(text, pheno_entry.referenceList, anchor_location, section_name='molecularGenetics')
                                 # Cohort
                                 if 'cohort' in detect and earliest_cohort == None:
-                                    cohorts, tcs = self.__get_cohorts(text, pheno_entry.referenceList, source="molecularGenetics")
+                                    if earliest_evidence:
+                                        known_publication = earliest_evidence.publication_evidence
+                                    earliest_cohort, cohorts, tcs = self.__get_cohorts(text, pheno_entry.referenceList, 
+                                                                        ref_start_position=anchor_location, known_publication=known_publication, 
+                                                                        section_name="molecularGenetics")
                                     total_cohort_size += tcs
-                                    for cohort in cohorts:
-                                        if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
-                                            earliest_cohort = cohort
 
-                    # Check Allelic variants' text for the GDA evidences
+                    ####### Check Allelic variants' text for the GDA evidences ########
                     if earliest_evidence == None:
                         for allele in gene_entry.allelicVariantList:
                             if 'text' in allele['allelicVariant']:
                                 logging.debug('----AV----')
+                                earliest_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
+                                    pheno_mim, allele['allelicVariant']['text'], gene_entry.referenceList)
                                 if 'association' in detect:
-                                    earliest_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
-                                        pheno_mim, allele['allelicVariant']['text'], gene_entry.referenceList)
                                     logging.debug(earliest_pub)
                                     if earliest_pub != None:
                                         evidence = Evidence()
@@ -640,55 +713,19 @@ class Curator:
                                         evidence.publication_evidence = earliest_pub
                                         if earliest_evidence == None or int(earliest_pub.year) < int(earliest_evidence.publication_evidence.year):
                                             earliest_evidence = evidence
-                                if 'animal' in detect and earliest_animal == None:
-                                    earliest_animal = self.__get_animal_model(allele['allelicVariant']['text'], gene_entry.referenceList, anchor_location, section_name='allelicVariant')
+                                if 'animal' in detect and earliest_animal == None and paragraph != None:
+                                    earliest_animal = self.__get_animal_model(paragraph, gene_entry.referenceList, anchor_location, section_name='allelicVariant')
                                     
                                 # Cohort
-                                if 'cohort' in detect and earliest_cohort == None:
-                                    text = allele['allelicVariant']['text']
-                                    cohorts, tcs = self.__get_cohorts(text, gene_entry.referenceList, source="allelicVariant")
+                                if 'cohort' in detect and earliest_cohort == None and paragraph != None:
+                                    if earliest_evidence:
+                                        known_publication = earliest_evidence.publication_evidence
+                                    earliest_cohort, cohorts, tcs = self.__get_cohorts(paragraph, gene_entry.referenceList, 
+                                                                        ref_start_position=anchor_location, known_publication=earliest_pub, 
+                                                                        section_name="allelicVariant")
                                     total_cohort_size += tcs
-                                    for cohort in cohorts:
-                                        if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
-                                            earliest_cohort = cohort
-                                # text = allele['allelicVariant']['text'].replace('\n\n', ' ')
-                                # text = text.replace('al.', 'al')
-                                # if str(pheno_mim) in text:
-                                #     # Detecting cohort descriptoion
-                                #     cohorts = self.__get_cohorts(text, gene_entry.referenceList, source="gene")
-                                #     for cohort in cohorts:
-                                #         if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
-                                #             earliest_cohort = cohort
-                                
-                                # TODO  DELETE THIS SECTION
-                                    # text = allele['allelicVariant']['text'].replace(
-                                    #     '\n\n', ' ')
-                                    # text = text.replace('al.', 'al')
-                                    # if str(pheno_mim) in text:
-                                    #     # Detecting cohort descriptoion
-                                    #     cohorts = self.__get_cohorts(text, gene_entry.referenceList, source="gene")
-                                    #     for cohort in cohorts:
-                                    #         if earliest_cohort == None or int(cohort.publication_evidence.year) < int(earliest_cohort.publication_evidence.year):
-                                    #             earliest_cohort = cohort
-                                    #     # Detecting animal model
-                                    #     _animal_models = self.__get_animal_model(text, gene_entry.referenceList)
-                                    #     for animal_model in _animal_models:
-                                    #         if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
-                                    #             earliest_animal = animal_model
-                                                
-                                                
-                    # if gene_entry.textSectionList:
-                    #     texts = gene_entry.textSectionList
-                    #     for text in texts:
-                    #         # Looking at Animal Model excerpt
-                    #         if text['textSection']['textSectionName'] == 'animalModel':
-                    #             anim_paras = text['textSection']['textSectionContent'].split(
-                    #                 '\n\n')
-                    #             for p in anim_paras:
-                    #                 _animal_models = self.__get_animal_model(p, gene_entry.referenceList)
-                    #                 for animal_model in _animal_models:
-                    #                     if earliest_animal == None or int(animal_model.publication_evidence.year) < int(earliest_animal.publication_evidence.year):
-                    #                         earliest_animal = animal_model
+                                    
+                    # Add information to item
                     if 'cohort' in detect and cohorts:
                         item.all_cohorts = cohorts
                         item.total_cohort_size = total_cohort_size

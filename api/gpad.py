@@ -42,11 +42,18 @@ def lol():
 
 
 @tpr.command()
-def lab():
-    
-    pl = PatternLab()
-    entries = GeneEntry.objects[:20]
+def lab(save: bool = typer.Option(False, help="If TRUE, save the results to a file")):
+    logging.getLogger().setLevel(logging.INFO)
+
+    all_genes = AssociationInformation.objects().distinct(field='gene_mimNumber')
+    all_phenos = AssociationInformation.objects().distinct(field='pheno_mimNumber')
+    logging.info(f"Total Genes: {len(all_genes)}")
+    logging.info(f"Total Phenos: {len(all_phenos)}")
+
+    pl = PatternLab(pattern=["cohort_with_det","cohort_pattern"])
+    entries = GeneEntry.objects(mimNumber__in=all_phenos[:100])
     # entries = GeneEntry.objects(mimNumber__in=[616576, 300438])
+    matches = {}
     for entry in tqdm(entries):
         # for allele in entry.allelicVariantList:
         #     if 'text' in allele['allelicVariant']:
@@ -57,18 +64,17 @@ def lab():
                 text = text_section['textSection']['textSectionContent'].replace(
                             '\n\n', ' ')
                 logging.debug(text)
-                # text = re.sub(Curator.publication_regex, mask_citation, text)
                 logging.debug(entry.mimNumber)
                 # logging.debug(text)
-                matches = pl.vm(text)
-                # if matches:
-                #     for m in matches:
-                #         logging.debug(m)
-                # logging.debug(matches)
-                # # if entry.mimNumber == 300438:
-                # # pl.show(text)
+                # _matches = pl.vm(text)
+                _matches = pl.match(text)
+                
+    for k, v in pl.text_variations.items():
+        logging.info(f"{k}: {set(v)}")
 
-
+    if save:
+        pd.DataFrame.from_dict(pl.text_variations).to_csv(data_dir / 'text_variations_cohort_det.tsv', index=False, sep='\t')
+    
 
 @tpr.command()
 def compare():
@@ -84,7 +90,7 @@ def compare():
 @tpr.command()
 def export():
     aqf = AggregationQueryFactory()
-    aqf.export_associations(data_dir / f"export_AssociationInformation_mar2023_phenonotignored.xlsx")
+    aqf.export_associations(data_dir / f"export_AssociationInformation_Mar2023_v4.xlsx")
 
 @tpr.command()
 def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without updating database")):

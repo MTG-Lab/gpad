@@ -166,7 +166,7 @@ class PatternLab:
             "LEFT_ID": "anchor_patients",
             "REL_OP": ">",
             "RIGHT_ID": "patient_modifier",
-            "RIGHT_ATTRS": {"LEMMA": {"IN": ["independent", "separate", "unrelated", "more", "different", "new", "sporadic", "further", "additional", "other"]},
+            "RIGHT_ATTRS": { #"LEMMA": {"IN": ["independent", "separate", "unrelated", "more", "different", "new", "sporadic", "further", "additional", "other", "affected"]},
                             "DEP": "amod", "POS": "ADJ",
                             "ENT_TYPE": {"NOT_IN": ["NORP"], }}
         },
@@ -188,20 +188,7 @@ class PatternLab:
             "RIGHT_ID": "patient_count",
             "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
         },
-    ]
-    cohort_phrase_pattern_3 = [
-        {
-            "RIGHT_ID": "anchor_patients",
-            "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "people", "infant", "woman", "man"]}, "POS": "NOUN"}
-        },
-        {
-            "LEFT_ID": "anchor_patients",
-            "REL_OP": ">",
-            "RIGHT_ID": "patient_count",
-            "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
-        },
-    ]
-    
+    ]    
     
     original_study_pattern = [
         {
@@ -229,41 +216,97 @@ class PatternLab:
         },
     ]
     
+    patterns = {
+        "cohort_pattern": cohort_phrase_pattern_1,
+        "cohort_with_det": [
+                {
+                    "RIGHT_ID": "anchor_patients",
+                    "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "people", "infant", "woman", "man"]}, "POS": "NOUN"}
+                },
+                {
+                    "LEFT_ID": "anchor_patients",
+                    "REL_OP": ">",
+                    "RIGHT_ID": "patient_count_1",
+                    "RIGHT_ATTRS": {"DEP": "det", "POS": "DET", "LEMMA": {"IN": ["a", "an"]}},
+                },
+        ],
+        "cohort_with_num": [
+                {
+                    "RIGHT_ID": "anchor_patients",
+                    "RIGHT_ATTRS": {"LEMMA": {"IN": ["family", "patient", "child", "boy", "girl", "parent", "individual", "people", "infant", "woman", "man"]}, "POS": "NOUN"}
+                },
+                {
+                    "LEFT_ID": "anchor_patients",
+                    "REL_OP": ">",
+                    "RIGHT_ID": "patient_count_2",
+                    "RIGHT_ATTRS": {"LIKE_NUM": True, "DEP": "nummod", "POS": "NUM"},
+                },
+        ],
+    }
     
-    def __init__(self) -> None:    
-        # matcher.add("PATIENTS", [pattern])
-        # self.matcher.add("ORIGINAL_STUDY", [self.pattern_1], on_match=self.on_match)
-        # self.matcher.add("ORIGINAL_STUDY_EXT_1", [self.pattern_2], on_match=self.on_match)
-        # self.matcher.add("ORIGINAL_STUDY_EXT_2", [self.pattern_3], on_match=self.on_match)
-        self.matcher.add("COHORT", [self.cohort_phrase_pattern_3])
-        # self.matcher.add("COHORT", [self.original_study_pattern])
-        # self.matcher.add("COHORT", [self.cohort_phrase_pattern_2], on_match=self.on_cohort_match)
+    def __init__(self, pattern="cohort_phrase_pattern_1") -> None:
+        if type(pattern) == str:
+            self.active_pattern = pattern
+            self.matcher.add(pattern, [self.patterns[pattern]])
+        else:
+            for p in pattern:
+                self.matcher.add(p, [self.patterns[p]])
 
     def show(self, text):
+        options = {"compact": True, "bg": "#09a3d5",
+           "color": "white", "font": "Source Sans Pro"}
         ss = self.nlp(text).sents
-        displacy.serve(ss, style="dep")
+        displacy.serve(ss, style="dep", options=options)
         
     def on_cohort_match(self, matcher, doc, match_id, matches):
-        logging.debug(f"MATCH ID: {match_id}")
-        logging.debug(f"# of PATIENTS: {doc[matches[match_id][1][1]]}")
-        # refs = []
+        # logging.debug(f"MATCH ID: {match_id}")
+        # logging.debug(f"# of PATIENTS: {doc[matches[match_id][1][1]]}")
         # for match_id, token_ids in matches:
-        #     refs.append(doc[token_ids[2]])
+        #     # refs.append(doc[token_ids[2]])
         #     _match_text = []
         #     for i in range(len(token_ids)):
         #         _match_text.append(doc[token_ids[i]])
-        #     logging.debug(_match_text)
+        #     logging.info(' '.join(_match_text))
+        
+        match_ids = []
+        for match_id, token_ids in matches:
+            logging.info(f"SENTANCE: {doc[token_ids[0]].sent}")
+            m_span = []
+            for i in range(len(token_ids)):
+                # logging.debug(f"ID {self.pattern[i]['RIGHT_ID']} : {doc[token_ids[i]]}")
+                logging.debug(f"==> {i}: {doc[token_ids[i]]}")
+                # if self.patterns[self.active_pattern][i]["RIGHT_ID"] not in self.text_variations:
+                #     self.text_variations[self.patterns[self.active_pattern][i]["RIGHT_ID"]] = []
+                # self.text_variations[self.patterns[self.active_pattern][i]["RIGHT_ID"]].append(doc[token_ids[i]].text)
+                logging.debug(f"POS:{doc[token_ids[i]].pos_}")
+                logging.debug(f"DEP:{doc[token_ids[i]].dep_}")
+                m_span.append(doc[token_ids[i]].text)
+            # logging.debug(doc[token_ids[0]:token_ids[1]].start_char)
+            # logging.debug(doc[token_ids[0]:token_ids[1]].sent)
+            logging.debug("==========================================")
+            match_ids.append(match_id)
+            logging.info(f"SPAN: {m_span}")
+        logging.debug(f"ALL THE MATCHES: {list(set(self.matches))}")
+        logging.debug(f"TEXT VARIATIONS: {self.text_variations}")
+        
 
     def vm(self, text):
         doc = self.nlp(text)
         matches = self.matcher(doc)
         text = []
+        matched_texts = {}
         # iterate over the matches
         for match_id, token_ids in matches:
             _match_text = []
             for i in range(len(token_ids)):
                 _match_text.append(doc[token_ids[i]].text)
+                if len(matched_texts) > i:
+                    matched_texts[i].append(doc[token_ids[i]].text)
+                else:
+                    matched_texts[i] = [doc[token_ids[i]].text]
             logging.debug(" ".join(_match_text))
+            logging.debug(f" ")
+        return matched_texts
         
     def on_match(self, matcher, doc, match_id, matches):
         string_id = doc.vocab.strings[match_id]
@@ -300,33 +343,37 @@ class PatternLab:
     
         # Each token_id corresponds to one pattern dict
         
-        if matches:
-            total = 0
-            for match_id, token_ids in matches:
-                w = doc[token_ids[1]].text
-                num = w2n.word_to_num(w.replace(',',''))
-                logging.debug(num)
-                total += int(num)
-            logging.debug(f"TOTAL=======: {total}========")
-        
         # if matches:
-            # logging.debug(text)
-            # match_ids = []
-            # for match_id, token_ids in matches:
-            #     logging.debug(f"SENTANCE: {doc[token_ids[0]].sent}")
-            #     for i in range(len(token_ids)):
-            #         # logging.debug(f"ID {self.pattern[i]['RIGHT_ID']} : {doc[token_ids[i]]}")
-            #         logging.debug(f"==> {i}: {doc[token_ids[i]]}")
-            #         # if self.pattern[i]["RIGHT_ID"] not in self.text_variations:
-            #         #     self.text_variations[self.pattern[i]["RIGHT_ID"]] = []
-            #         # self.text_variations[self.pattern[i]["RIGHT_ID"]].append(doc[token_ids[i]].text)
-            #         logging.debug(f"POS:{doc[token_ids[i]].pos_}")
-            #         logging.debug(f"DEP:{doc[token_ids[i]].dep_}")
-            #     # logging.debug(doc[token_ids[0]:token_ids[1]].start_char)
-            #     # logging.debug(doc[token_ids[0]:token_ids[1]].sent)
-            #     logging.debug("==========================================")
-            #     match_ids.append(match_id)
-        # logging.debug(f"ALL THE MATCHES: {list(set(self.matches))}")
+        #     total = 0
+        #     for match_id, token_ids in matches:
+        #         w = doc[token_ids[1]].text
+        #         num = w2n.word_to_num(w.replace(',',''))
+        #         logging.debug(num)
+        #         total += int(num)
+        #     logging.debug(f"TOTAL=======: {total}========")
+        
+        if matches:
+            logging.debug(text)
+            match_ids = []
+            for match_id, token_ids in matches:
+                logging.info(f"SENTANCE: {doc[token_ids[0]].sent}")
+                m_span = []
+                for i in range(len(token_ids)):
+                    # logging.debug(f"ID {self.pattern[i]['RIGHT_ID']} : {doc[token_ids[i]]}")
+                    logging.debug(f"==> {i}: {doc[token_ids[i]]}")
+                    # if self.patterns[self.active_pattern][i]["RIGHT_ID"] not in self.text_variations:
+                    #     self.text_variations[self.patterns[self.active_pattern][i]["RIGHT_ID"]] = []
+                    # self.text_variations[self.patterns[self.active_pattern][i]["RIGHT_ID"]].append(doc[token_ids[i]].text)
+                    logging.debug(f"POS:{doc[token_ids[i]].pos_}")
+                    logging.debug(f"DEP:{doc[token_ids[i]].dep_}")
+                    m_span.append(doc[token_ids[i]].text)
+                # logging.debug(doc[token_ids[0]:token_ids[1]].start_char)
+                # logging.debug(doc[token_ids[0]:token_ids[1]].sent)
+                logging.debug("==========================================")
+                match_ids.append(match_id)
+                logging.info(f"SPAN: {m_span}")
+        logging.debug(f"ALL THE MATCHES: {list(set(self.matches))}")
+        logging.debug(f"TEXT VARIATIONS: {self.text_variations}")
         return matches
     
 def mask_citation(match):
