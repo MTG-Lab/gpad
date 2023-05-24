@@ -35,10 +35,15 @@ from mongoengine import connect, disconnect
 
 @tpr.command()
 def lol():    
-    MONGO_URI = os.getenv("MONGO_URI")
-    disconnect()
-    connect(host=MONGO_URI)
-    print(GeneEntry.objects[:2])
+    ent = AssociationInformation.objects
+    for e in tqdm(ent[:20]):
+        if 'evidence' in e:
+            if 'publication_evidence' in e.evidence:
+                if 'pmid' in e.evidence.publication_evidence:
+                    p = e.evidence.publication_evidence.pmid
+                    if p != None:
+                        d = Curator().pmid_to_date(pmid=p)
+        
 
 
 @tpr.command()
@@ -51,8 +56,8 @@ def lab(save: bool = typer.Option(False, help="If TRUE, save the results to a fi
     logging.info(f"Total Phenos: {len(all_phenos)}")
 
     pl = PatternLab(pattern=["cohort_with_det","cohort_pattern"])
-    entries = GeneEntry.objects(mimNumber__in=all_phenos[:100])
-    # entries = GeneEntry.objects(mimNumber__in=[616576, 300438])
+    # entries = GeneEntry.objects(mimNumber__in=all_phenos[:100])
+    entries = GeneEntry.objects(mimNumber__in=[616576, 300438])
     matches = {}
     for entry in tqdm(entries):
         # for allele in entry.allelicVariantList:
@@ -67,13 +72,14 @@ def lab(save: bool = typer.Option(False, help="If TRUE, save the results to a fi
                 logging.debug(entry.mimNumber)
                 # logging.debug(text)
                 # _matches = pl.vm(text)
-                _matches = pl.match(text)
+                pl.show(text)
+    #             _matches = pl.match(text)
                 
-    for k, v in pl.text_variations.items():
-        logging.info(f"{k}: {set(v)}")
+    # for k, v in pl.text_variations.items():
+    #     logging.info(f"{k}: {set(v)}")
 
-    if save:
-        pd.DataFrame.from_dict(pl.text_variations).to_csv(data_dir / 'text_variations_cohort_det.tsv', index=False, sep='\t')
+    # if save:
+    #     pd.DataFrame.from_dict(pl.text_variations).to_csv(data_dir / 'text_variations_cohort_det.tsv', index=False, sep='\t')
     
 
 @tpr.command()
@@ -90,7 +96,7 @@ def compare():
 @tpr.command()
 def export():
     aqf = AggregationQueryFactory()
-    aqf.export_associations(data_dir / f"export_AssociationInformation_Mar2023_v4.xlsx")
+    aqf.export_associations(data_dir / f"export_AssociationInformation_Mar2023_v4.1.xlsx")
 
 @tpr.command()
 def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without updating database")):
@@ -111,7 +117,7 @@ def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without
     
     # # Apply NLP
     curation = Curator()
-    curation.curate([], detect='all', force_update=True, dry_run=dry_run)
+    curation.curate([], detect=['association'], force_update=True, dry_run=dry_run)
     # curation.curate([400020], force_update=True)
     # curation.curate(extracted)
     

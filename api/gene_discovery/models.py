@@ -33,6 +33,7 @@ class PublicationItem(EmbeddedDocument):
     year = IntField()
     pmid = IntField()
     pub_date = DateTimeField()
+    journal_name = StringField()
 
 class Evidence(EmbeddedDocument):
     section_title = StringField()
@@ -118,7 +119,8 @@ class AssociationInformation(DynamicDocument):
     
     ### Identified information ###
     # Major
-    evidence = EmbeddedDocumentField(Evidence)    
+    evidence = EmbeddedDocumentField(Evidence)
+    evidence_coreport = EmbeddedDocumentField(Evidence)
     animal_model = EmbeddedDocumentField(AnimalModelsItem)  
     cohort = EmbeddedDocumentField(CohortDescription)
     # Secondary
@@ -139,6 +141,7 @@ class AssociationInformation(DynamicDocument):
 
 class PubmedEntry(Document):
     pmid = IntField()
+    journal_name = StringField()
     abstract = StringField()
     raw_pub_date = StringField()
     raw_epub_date = StringField()

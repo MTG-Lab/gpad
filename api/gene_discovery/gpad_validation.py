@@ -7,11 +7,13 @@ Copyright (c) 2021 Tahsin Hassan Rahit, MTG-lab, University of Calgary
 You should have received a copy of the license along with this program.
 '''
 
+from datetime import date, timedelta, datetime
 import re
 from time import sleep
 from unittest import result
 import pandas as pd
 import numpy as np
+from api.gene_discovery.data_curation import Curator
 import pendulum
 import logging
 
@@ -64,10 +66,30 @@ class Validation:
                 handle = Entrez.esummary(db="pubmed", id=row['PMID Gene-disease'])
                 record = Entrez.read(handle)
                 handle.close()
-                pe.pmid = row['PMID Gene-disease']
-                pe.pub_date = record[0]["PubDate"]
-                yr_match = re.match(self.year_regex, record[0]["PubDate"])
-                pe.pub_year = yr_match.group()
+                pe.pmid = row['PMID Gene-disease']                
+                
+                pe.raw_pub_date = record[0]["PubDate"]
+                dt_match = re.match(Curator.pubmed_date_regex, record[0]["PubDate"])
+                try:
+                    if dt_match and dt_match.group(3):
+                        pe.pub_date =  datetime.strptime(dt_match.group(), "%Y %b %d")
+                    elif dt_match:
+                        pe.pub_date =  datetime.strptime(dt_match.group(), "%Y %b")
+                except ValueError as e:
+                    logging.exception(repr(e))
+                if dt_match:
+                    pe.pub_year = dt_match.group(1)
+                
+                if 'EPubDate' in record[0]:
+                    pe.raw_epub_date = record[0]["EPubDate"]
+                    epub_dt_match = re.match(Curator.pubmed_date_regex, record[0]["EPubDate"])                
+                    if epub_dt_match and epub_dt_match.group(3):
+                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b %d")
+                    elif epub_dt_match:
+                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b")
+                
+                # yr_match = re.match(self.year_regex, record[0]["PubDate"])
+                # pe.pub_year = yr_match.group()
                 pe.save()
             return pe.pub_year
         return None

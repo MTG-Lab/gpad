@@ -189,7 +189,7 @@ class Curator:
         return "Ref#" + match.group(1)
     
     
-    def pmid_to_date(self, pmid):
+    def __get_pubmed_entry(self, pmid):
         """Get publication date from pubmed ID
 
         Args:
@@ -198,6 +198,7 @@ class Curator:
         Returns:
             str: date wit month information
         """
+        pe = None
         if pmid:
             pe = PubmedEntry.objects(pmid=pmid).first()
             if pe == None:
@@ -206,6 +207,7 @@ class Curator:
                 handle = Entrez.esummary(db="pubmed", id=pmid)
                 record = Entrez.read(handle)
                 handle.close()
+                logging.debug(record)
                 pe.pmid = pmid
                 pe.raw_pub_date = record[0]["PubDate"]
                 dt_match = re.match(self.pubmed_date_regex, record[0]["PubDate"])
@@ -222,17 +224,21 @@ class Curator:
                 if 'EPubDate' in record[0]:
                     pe.raw_epub_date = record[0]["EPubDate"]
                     epub_dt_match = re.match(self.pubmed_date_regex, record[0]["EPubDate"])                
-                    if epub_dt_match and epub_dt_match.group(3):
-                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b %d")
-                    elif epub_dt_match:
-                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b")
+                    if epub_dt_match:
+                        if epub_dt_match.group(1):
+                            pe.pub_year = epub_dt_match.group(1)
+                        if epub_dt_match.group(3):
+                            pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b %d")
+                        elif epub_dt_match:
+                            pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b")
+                        
+                # Journal name
+                if 'FullJournalName' in record[0]:
+                    pe.journal_name = record[0]["FullJournalName"]
                 pe.save()
-            if pe.epub_date:
-                return pe.epub_date
-            else:
-                return pe.pub_date
-        return None
-
+        return pe
+    
+    
     def __nearest_publication_detector(self, text, ref_start_position):
         """Detect nearest citation from the anchor token
 
@@ -300,7 +306,13 @@ class Curator:
         pub["pmid"] = pmid
         pub["author"] = pub_match.group(2)
         pub["year"] = pub_match.group(3)
-        pub["pub_date"] = self.pmid_to_date(pmid)
+        pe = self.__get_pubmed_entry(pmid)        
+        if pe != None and 'epub_date' in pe and pe.epub_date:
+            pub["pub_date"] = pe.epub_date
+        elif pe != None and 'pub_date' in pe and pe.pub_date:
+            pub["pub_date"] = pe.pub_date
+        if pe != None and 'journal_name' in pe:
+            pub['journal_name'] = pe.journal_name
         return pub
 
     def __animal_model_type(self, name):
@@ -575,6 +587,7 @@ class Curator:
         text = text.replace('al.', 'al')
         paras = text.split('\n\n')
         earliest_ref = None
+        coreport_ref = None
         anchor_location = 0
         paragraph = None
         if not isinstance(query, list):
@@ -595,7 +608,28 @@ class Curator:
                                 anchor_location = start
                                 earliest_ref = pub
                                 paragraph = p
-        return earliest_ref, anchor_location, paragraph
+        # get all reference in the section
+        pubs = re.finditer(self.publication_regex, text)
+        for pub in pubs:
+            _cr_pub = self.__create_publication_object_from_match(pub, reference_list)
+            if _cr_pub != None and earliest_ref != None:
+                # get pmid date and compare
+                coreport_date = _cr_pub.pub_date
+                earliest_ref_date = earliest_ref.pub_date
+                logging.debug(f"Potential coreport publication: {coreport_date}")
+                logging.debug(f"Evidence publication: {earliest_ref_date}")
+                if _cr_pub.pmid != earliest_ref.pmid and \
+                    (int(_cr_pub.year) == int(earliest_ref.year) or int(_cr_pub.year) == int(earliest_ref.year)+1 or \
+                    int(_cr_pub.year) == int(earliest_ref.year)-1):
+                    if coreport_date != None and earliest_ref_date != None:
+                        coreport_date = pendulum.instance(coreport_date)
+                        epub_date = pendulum.instance(earliest_ref_date)
+                        logging.debug(f"Difference of publication date: {epub_date.diff(coreport_date).in_days()}")
+                        if epub_date.diff(coreport_date).in_days() < 180:
+                            logging.debug(f"Coreport publication found: {_cr_pub.pmid}")
+                            coreport_ref = _cr_pub
+                        break
+        return earliest_ref, anchor_location, paragraph, coreport_ref
     
 
     def process(self, item: AssociationInformation, detect='all', dry_run=False):
@@ -659,7 +693,7 @@ class Curator:
                                 if 'approvedGeneSymbols' in gene_entry.geneMap:
                                     query.append(gene_entry.geneMap['approvedGeneSymbols'])
                                 query.append(gene_entry.mimNumber)
-                                earliest_mo_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
+                                earliest_mo_pub, anchor_location, paragraph, coreport_ref = self.__earliest_ref_from_text(
                                     query, text, pheno_entry.referenceList, self.animal_matcher)
                                 if earliest_mo_pub:
                                     earliest_animal = self.__get_animal_model(paragraph, pheno_entry.referenceList, anchor_location, earliest_mo_pub, section_name='animalModel')
@@ -675,7 +709,7 @@ class Curator:
                                     query.append(gene_entry.geneMap['approvedGeneSymbols'])
                                 # GDA
                                 if 'association' in detect:
-                                    earliest_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
+                                    earliest_pub, anchor_location, paragraph, coreport_ref = self.__earliest_ref_from_text(
                                         query, text, pheno_entry.referenceList)
                                     logging.debug(earliest_pub)
                                     if earliest_pub != None:
@@ -683,6 +717,7 @@ class Curator:
                                         evidence.section_title = 'molecularGenetics'
                                         evidence.referred_entry = gene_entry.mimNumber
                                         evidence.publication_evidence = earliest_pub
+                                        evidence.publication_coreport = coreport_ref
                                         if earliest_evidence == None or int(earliest_pub.year) < int(earliest_evidence.publication_evidence.year):
                                             earliest_evidence = evidence
                                 # Animal Model
@@ -702,7 +737,7 @@ class Curator:
                         for allele in gene_entry.allelicVariantList:
                             if 'text' in allele['allelicVariant']:
                                 logging.debug('----AV----')
-                                earliest_pub, anchor_location, paragraph = self.__earliest_ref_from_text(
+                                earliest_pub, anchor_location, paragraph, coreport_ref = self.__earliest_ref_from_text(
                                     pheno_mim, allele['allelicVariant']['text'], gene_entry.referenceList)
                                 if 'association' in detect:
                                     logging.debug(earliest_pub)
@@ -711,6 +746,7 @@ class Curator:
                                         evidence.section_title = 'allelicVariant'
                                         evidence.referred_entry = pheno_mim
                                         evidence.publication_evidence = earliest_pub
+                                        evidence.publication_coreport = coreport_ref
                                         if earliest_evidence == None or int(earliest_pub.year) < int(earliest_evidence.publication_evidence.year):
                                             earliest_evidence = evidence
                                 if 'animal' in detect and earliest_animal == None and paragraph != None:
