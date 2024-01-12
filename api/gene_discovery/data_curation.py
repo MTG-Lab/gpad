@@ -279,6 +279,7 @@ class Curator:
                 # Ignore if it is found as part of "original" patient reporting study
                 if ignore_pub_ids and match.group(1) in ignore_pub_ids:
                     continue
+                logging.debug(f"{match} check proximity from {ref_start_position}")
                 # Consider proximity of the detected publication to the anchor text
                 if match.start(0) < ref_start_position:
                     distance = abs(ref_start_position - match.start(0))
@@ -287,6 +288,8 @@ class Curator:
                 if distance < lowest_distance:
                     nearest_match = match
                     lowest_distance = distance
+        
+        logging.debug(f"{nearest_match} passed proximity check")
         return nearest_match
 
     def __create_publication_object_from_match(self, pub_match, reference_list=None):

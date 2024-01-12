@@ -17,10 +17,4 @@ Data backend prepares data in a 2 step process.
    - To run these script - `python -m gene_discovery.omim_api_extraction --init` 
      - Note that OMIM API limits 250 requests per day. Therefore you might need to work on the data for multiple days. Do not run the above command with `--init` flag. Because it will process data from the beggining. Instead run following: `python -m gene_discovery.omim_api_extraction` 
 2. Curate/process collected data according the the need using `gene_discovery/data_curation.py`
-   - To run these script - `python -m gene_discovery.data_curation`
-
-## Features
-## Usage (Optional)
-## Documentation (Optional)
-## Tests (Optional)
-
+   - To run these script - `python -m api.gpad omim`

@@ -7,7 +7,7 @@ from .settings import *
 
 
 class GeneEntry(Document):
-    _id = ObjectIdField(primary_key=True)
+    # _id = ObjectIdField(primary_key=True)
     prefix = StringField()
     mimNumber = IntField()
     status = StringField()

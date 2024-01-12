@@ -27,7 +27,7 @@ from .gene_discovery.settings import *
 from .gene_discovery.omim_api_extraction import extract_gene_info, get_gene_ids, has_update, ignore_existing_genes, get_geneMaps, what_to_update
 
 
-tpr = typer.Typer()
+tpr = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 import os
@@ -83,6 +83,23 @@ def lab(save: bool = typer.Option(False, help="If TRUE, save the results to a fi
     
 
 @tpr.command()
+def visualize():
+    entry = GeneEntry.objects(mimNumber=619239).first()
+    logging.info(entry.mimNumber)
+    text = ""
+    if entry:
+        for text_section in entry.textSectionList:
+            if  text_section['textSection']['textSectionName'] == 'molecularGenetics':
+                text = text_section['textSection']['textSectionContent'].replace(
+                            '\n\n', ' ')
+        logging.info(text[:100])
+        pl = PatternLab()
+        pl.show(text=text)
+    else:
+        logging.info("No entry found")
+
+
+@tpr.command()
 def compare():
     v = Validation()
     # print(v.chong_df)
@@ -96,7 +113,7 @@ def compare():
 @tpr.command()
 def export():
     aqf = AggregationQueryFactory()
-    aqf.export_associations(data_dir / f"export_AssociationInformation_Mar2023_v4.1.xlsx")
+    aqf.export_associations(data_dir / f"export_AssociationInformation_May2023_v5.xlsx")
 
 @tpr.command()
 def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without updating database")):
@@ -111,14 +128,14 @@ def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without
     # mims_to_fetch = what_to_update()
     # print(f"[bold red]{len(mims_to_fetch)}[/bold red] entries to be extracted from OMIM API.\n")
     
-    # # # # Extract from OMIM API
+    # # # Extract from OMIM API
     # extracted = extract_gene_info(mims_to_fetch)
     # print(f"[bold blue]{len(extracted)}[/bold blue] genes successfully extracted.\n")
     
     # # Apply NLP
     curation = Curator()
-    curation.curate([], detect=['association'], force_update=True, dry_run=dry_run)
-    # curation.curate([400020], force_update=True)
+    # curation.curate([], detect='all', force_update=True, dry_run=dry_run)
+    curation.curate([603136], force_update=True, dry_run=True)
     # curation.curate(extracted)
     
     print(f":white_heavy_check_mark: DONE!")

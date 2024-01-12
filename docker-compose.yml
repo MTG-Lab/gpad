@@ -34,12 +34,12 @@ services:
       - "5000:5000"
 
   mongo:
-    image: mongo:latest
+    image: mongo:5.0
     restart: always
     volumes:
       - ./db:/data/db
     ports:
-      - "27018:27017"
+      - "27017:27017"
 
   mongo-express:
     image: mongo-express

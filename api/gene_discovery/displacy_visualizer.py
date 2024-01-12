@@ -244,7 +244,7 @@ class PatternLab:
         ],
     }
     
-    def __init__(self, pattern="cohort_phrase_pattern_1") -> None:
+    def __init__(self, pattern="cohort_pattern") -> None:
         if type(pattern) == str:
             self.active_pattern = pattern
             self.matcher.add(pattern, [self.patterns[pattern]])

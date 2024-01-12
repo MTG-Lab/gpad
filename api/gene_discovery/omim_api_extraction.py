@@ -110,19 +110,20 @@ def what_to_update():
         if assoc.pheno_entry_fetched:
             mims_to_check[str(assoc.pheno_mimNumber)] = [assoc, False]
             # WIP change to assoc dict
-            if len(mims_to_check.keys()+1) > limit:
-                checked_mims = has_update(mims_to_check)
-                for k, cm in checked_mims.items():
-                    logging.info(f"{cm[0].mimNumber}: {cm[1]}")
-                    if cm[1]:
-                        mims_to_fetch.append(cm[0].mimNumber)
-                        for p in cm[0].phenotypes:
-                            mims_to_fetch.append(p.mim_number)
-                mims_to_check = {}
+            # if len(mims_to_check.keys()+1) > limit:
+            #     checked_mims = has_update(mims_to_check)
+            #     for k, cm in checked_mims.items():
+            #         logging.info(f"{cm[0].mimNumber}: {cm[1]}")
+            #         if cm[1]:
+            #             mims_to_fetch.append(cm[0].mimNumber)
+            #             for p in cm[0].phenotypes:
+            #                 mims_to_fetch.append(p.mim_number)
+            #     mims_to_check = {}
         else:
             mims_to_fetch.append(assoc.pheno_mimNumber)
-            for p in assoc.phenotypes:
-                mims_to_fetch.append(assoc.pheno_mimNumber)
+            if 'phenotypes' in assoc:
+                for p in assoc.phenotypes:
+                    mims_to_fetch.append(p.mim_number)
     return mims_to_fetch
 
 
@@ -293,6 +294,7 @@ def extract_gene_info(genes_to_extract):
                     entry.referenceList = r['entry']['referenceList']
                 if 'externalLinks' in r['entry']:
                     entry.externalLinks = r['entry']['externalLinks']
+                logging.debug(f"Saving {entry.mimNumber}")
                 entry.save()
                 
                 assoc = AssociationInformation.objects.filter(
