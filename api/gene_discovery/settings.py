@@ -10,9 +10,12 @@ You should have received a copy of the license along with this program.
 import os
 import dotenv
 import logging
+import pendulum
 from pathlib import Path
 from mongoengine import connect
 from pymongo import MongoClient
+
+from Bio import Entrez
 
 project_dir = Path(__file__).parents[2]
 data_dir = project_dir / 'data'
@@ -22,10 +25,11 @@ dotenv.load_dotenv(dotenv_path)
 
 OMIM_API_KEY = os.getenv("OMIM_API_KEY")
 OMIM_RESPONSE_LIMIT = 20    # OMIM limit 20 entries per request
+OMIM_DAILY_LIMIT = 250
 NCBI_API_KEY = os.getenv("NCBI_API_KEY")
 
 log_fmt = "[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s - %(funcName)s() ] %(message)s"
-logging.basicConfig(filename=project_dir/'logs'/'app.log', filemode='w', level=logging.DEBUG, format=log_fmt)
+logging.basicConfig(filename=project_dir/'logs'/f"app{pendulum.now()}.log", filemode='w', level=logging.DEBUG, format=log_fmt)
 
 # Connect to mongodb
 # connect(
@@ -37,5 +41,7 @@ logging.basicConfig(filename=project_dir/'logs'/'app.log', filemode='w', level=l
 # )
 
 MONGO_URI = os.getenv("MONGO_URI")
-db = MongoClient(MONGO_URI)['gene_discovery']
+# db = MongoClient(MONGO_URI)['gene_discovery']
 connect(host=MONGO_URI)
+
+Entrez.email = "tahsin.rahit@gmail.com"

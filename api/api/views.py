@@ -28,81 +28,38 @@ class Search(Resource):
         _q = {'$text': { '$search': query }}
         if query.isnumeric():
             _q = {'mimNumber': int(query)}
-        gene_entry = db.db.gene_entry.find_one(_q, sort=[('dateUpdated', DESCENDING)])
-        if gene_entry:
-            phenos = db.db.curated_gene_info.find_one({
-                'gene_mim_id': gene_entry['mimNumber']
-            }, sort=[('date_updated', DESCENDING)])
-            # logging.warning(phenos)
-            # logging.warning(gene_entry['mimNumber'])
-            # logging.warning(phenos)
-            if phenos:
-                for pheno in phenos['phenotypes']:
-                    assoc_info = db.db.latest.find_one({
-                        '$and': [
-                            {'gene_mim_id': gene_entry['mimNumber']},
-                            {'phenotype_mim': pheno['mim_number']}
-                        ]
-                    }, sort=[('date_updated', DESCENDING)])
-                    # gene_info.append(assoc_info)
-                    if 'earliest_phenotype_association' not in assoc_info:
-                        assoc_info['earliest_phenotype_association'] = {'pmid': None, 'author': None, 'year': None}
-                    if 'earliest_cohort' not in assoc_info:
-                        assoc_info['earliest_cohort'] = {'publication_evidence': {'pmid': None, 'author': None, 'year': None}}
-                    if 'earliest_phenotype_specific_animal_model' not in assoc_info:
-                        assoc_info['earliest_phenotype_specific_animal_model'] = {'publication_evidence': {'pmid': None, 'author': None, 'year': None}}
-                    gene_info.append({'gene_info': gene_entry['geneMap'], 'assoc_info': assoc_info})
+        omim_entry = db.db.omim_entry_AGG.find(_q, sort=[('dateUpdated', DESCENDING)])
+        if omim_entry:
+            for oe in omim_entry:
+                logging.info(oe['mimNumber'])
+                gdas = db.db.association_information_test_2_AGG.find(
+                    {'$or': [
+                        {'gene_mimNumber': oe['mimNumber']},
+                        {'pheno_mimNumber': oe['mimNumber']}
+                ]}, sort=[('date_updated', DESCENDING)])
+                for assoc_info in gdas:
+                    if assoc_info:
+                        if 'evidence' not in assoc_info:
+                            assoc_info['evidence'] = {'publication_evidence': {'pmid': None, 'author': None, 'year': None}}
+                        if 'cohort' not in assoc_info:
+                            assoc_info['cohort'] = {'publication_evidence': {'pmid': None, 'author': None, 'year': None}}
+                        if 'animal_model' not in assoc_info:
+                            assoc_info['animal_model'] = {'publication_evidence': {'pmid': None, 'author': None, 'year': None}}
+                        gene_info.append({'assoc_info': assoc_info})
         return json.loads(json.dumps(gene_info, default=json_util.default))
 
 
 class NewAssociations(Resource):
     def get(self, date_from):
-        date_from = datetime.datetime.fromisoformat(date_from)
-        updated_genes = db.db.earliest_phenotype_association.find({
-            'date_updated': {
-                '$gte': date_from
-            }
-        })
-        # logging.warning(updated_genes.count())
-        # mims = [e['gene_mim_id'] for e in updated_genes]
-        new_assoc = []
-        for entry in updated_genes:
-            query = {
-                '$and': [
-                    {'gene_mim_id': entry['gene_mim_id']},
-                    {'phenotype_mim': entry['phenotype_mim']},
-                    {'date_updated': {'$lt': date_from}}
-                ]
-            }
-            # logging.warning(prev_update.count())
-            if not db.db.earliest_phenotype_association.count_documents(query):
-                new_assoc.append(entry)
-                # logging.warning(f"New phenotype for: {entry['gene_mim_id']}, {entry['phenotype_mim']}")
-        return json.loads(json.dumps(new_assoc, default=json_util.default)) #json.dumps(new_assoc, default=json_util.default)
-
+        sort = [('evidence.publication_evidence.year', -1), ('gpad_updated', -1)]
+        recent_entries = db.db.association_information_test_2_AGG.find().sort(sort).limit(5)
+        return json.loads(json.dumps(list(recent_entries), default=json_util.default))
 
 class Trend(Resource):
     def get(self):
-        res = db.db.latest.aggregate([
+        # logging.info('trend')
+        res = db.db.association_information_test_2_AGG.aggregate([
             {
-                '$match': {
-                    'mapping_key': {
-                        '$ne': 2
-                    }   
-                }
-            },  {
-                '$set': {
-                    '_id': {
-                        '$concat': [
-                            {
-                                '$toString': '$gene_mim_id'
-                            }, {
-                                '$toString': '$phenotype_mim'
-                            }
-                        ]
-                    }
-                }
-            }, {
                 '$group': {
                     '_id': '$_id', 
                     'doc': {
@@ -111,9 +68,9 @@ class Trend(Resource):
                 }
             }, {
                 '$set': {
-                    'earliest_phenotype_association': '$doc.earliest_phenotype_association.year', 
-                    'earliest_phenotype_specific_animal_model': '$doc.earliest_phenotype_specific_animal_model.publication_evidence.year', 
-                    'earliest_cohort': '$doc.earliest_cohort.publication_evidence.year'
+                    'earliest_phenotype_association': '$doc.evidence.publication_evidence.year', 
+                    'earliest_phenotype_specific_animal_model': '$doc.animal_model.publication_evidence.year', 
+                    'earliest_cohort': '$doc.cohort.publication_evidence.year'
                 }
             }, {
                 '$project': {
@@ -199,64 +156,8 @@ class Trend(Resource):
                 }
             }
         ])
-        av_res = db.db.allelic_variant.aggregate([
-            {
-                '$set': {
-                    'earliest_av_association': '$earliest_phenotype_association.year'
-                }
-            }, {
-                '$project': {
-                    'earliest_av_association': 1
-                }
-            }, {
-                '$facet': {
-                    'earliest_av_association': [
-                        {
-                            '$group': {
-                                '_id': '$earliest_av_association', 
-                                'earliest_av_association': {
-                                    '$sum': 1
-                                }
-                            }
-                        }
-                    ]
-                }
-            }, {
-                '$unwind': {
-                    'path': '$earliest_av_association'
-                }
-            }, {
-                '$replaceRoot': {
-                    'newRoot': '$earliest_av_association'
-                }
-            }, {
-                '$group': {
-                    '_id': '$_id', 
-                    'earliest_av_association': {
-                        '$sum': '$earliest_av_association'
-                    }
-                }
-            }, {
-                '$match': {
-                    '_id': {
-                        '$gt': 1985
-                    }
-                }
-            }, {
-                '$sort': {
-                    '_id': 1
-                }
-            }
-        ])
-        pheno_trend = json.loads(json.dumps(list(res), default=json_util.default))
-        av_trend = json.loads(json.dumps(list(av_res), default=json_util.default))
-        d = DefaultDict(dict)
-        for l in (pheno_trend, av_trend):
-            for elem in l:
-                d[elem['_id']].update(elem)
-        trend = d.values()
-        return {'data': list(trend)}
-        # return {'data': json.loads(json.dumps(list(res)[1:], default=json_util.default))}
+
+        return {'data': json.loads(json.dumps(list(res)[1:], default=json_util.default))}
 
 
 
@@ -360,23 +261,23 @@ class ModelOrganismTrend(Resource):
     def get(self):
         pipeline = [
             {
+                '$set': {
+                    'mo': '$animal_model.animal_name'
+                }
+            }, {
                 '$unwind': {
-                    'path': '$phenotype_specific_animal_model_names'
+                    'path': '$mo'
                 }
             }, {
                 '$group': {
-                    '_id': '$phenotype_specific_animal_model_names', 
+                    '_id': '$mo', 
                     'count': {
                         '$sum': 1
                     }
                 }
-            }, {
-                '$sort': {
-                    'count': -1
-                }
             }
         ]
-        res = db.db.latest.aggregate(pipeline)
+        res = db.db.association_information_test_2_AGG.aggregate(pipeline)
         mo = {
             'Yeast': ["saccharomyces cerevisiae", "s. cerevisiae", "yeast"], 
             'Pea Plant': ["pisum sativum", "Pea plant"], 
@@ -390,7 +291,17 @@ class ModelOrganismTrend(Resource):
         }
         data = {}
         for entry in res:
-            std_name = [std_name for std_name, aliases in mo.items() if entry['_id'].lower() in aliases]
+            std_name = []
+            # Check if entry is in any of the aliases
+            for _std_name, aliases in mo.items():
+                if entry['_id'].lower() in aliases:
+                    logging.info(_std_name)
+                    std_name.append(_std_name)
+                    break
+            if not std_name:
+                std_name.append('Other')
+
+            # Initialize dict if not present
             if std_name[0] in data.keys():
                 data[std_name[0]] += int(entry['count'])
             else:
@@ -406,6 +317,11 @@ class ModelOrganismYearlyTrend(Resource):
     def get(self):
         pipeline = [
             {
+                '$set': {
+                    'phenotype_specific_animal_model_names': '$animal_model.animal_name',
+                    'earliest_phenotype_animal_year': '$animal_model.publication_evidence.year',
+                }
+            }, {
                 '$unwind': {
                     'path': '$phenotype_specific_animal_model_names'
                 }
@@ -431,7 +347,7 @@ class ModelOrganismYearlyTrend(Resource):
                 }
             }
         ]
-        res = db.db.latest.aggregate(pipeline)
+        res = db.db.association_information_test_2_AGG.aggregate(pipeline)
         mo = {
             'Yeast': ["saccharomyces cerevisiae", "s. cerevisiae", "yeast"], 
             'Pea Plant': ["pisum sativum", "Pea plant"], 
@@ -445,8 +361,17 @@ class ModelOrganismYearlyTrend(Resource):
         }
         data = {}
         c = 0
-        for entry in res:
-            std_name = [std_name for std_name, aliases in mo.items() if entry['_id'].lower() in aliases]
+        for entry in res:            
+            std_name = []
+            # Check if entry is in any of the aliases
+            for _std_name, aliases in mo.items():
+                if entry['_id'].lower() in aliases:
+                    logging.info(_std_name)
+                    std_name.append(_std_name)
+                    break
+            if not std_name:
+                std_name.append('Other')
+            # std_name = [std_name for std_name, aliases in mo.items() if entry['_id'].lower() in aliases]
             if entry['year'] in data.keys():
                 if std_name[0] in data[entry['year']].keys():
                     data[entry['year']][std_name[0]] += int(entry['count'])
@@ -475,7 +400,7 @@ class CohortCount(Resource):
             {
                 '$set': {
                     'cohort_count': {
-                        '$sum': '$earliest_cohort.cohort_count'
+                        '$sum': '$cohort.cohort_count'
                     }
                 }
             }, {
@@ -490,7 +415,7 @@ class CohortCount(Resource):
                 }
             }
         ]
-        res = db.db.latest.aggregate(pipeline)
+        res = db.db.association_information_test_2_AGG.aggregate(pipeline)
         data = {"1": 0, "2-5": 0, '5-10': 0, '10+': 0}
         for entry in res:
             # logging.warning(entry['cohort_count'])

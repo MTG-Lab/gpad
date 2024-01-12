@@ -12,7 +12,7 @@ function ListView() {
     const [items, setItems] = useState([]);
     console.log(process.env)
     
-    let url = "http://206.12.96.161:5555/api/v1/new/" + date_from.toISOString().slice(0,-1)
+    let url = "http://localhost:5555/api/v1/new/" + date_from.toISOString().slice(0,-1)
     // url += 'per_page=' + query.pageSize
     // url += '&page=' + (query.page + 1)
     // Note: the empty deps array [] means
@@ -46,16 +46,16 @@ function ListView() {
                 title="Recent GPAD reported by OMIM"
                 columns={[
                 { title: "Gene Symbols", field: "gene_symbols", 
-                  render: rowData => <a href={"https://omim.org/entry/"+rowData.gene_mim_id} target="_blank" rel="noopener noreferrer">{rowData.gene_symbols}</a>,                  
+                  render: rowData => <a href={"https://omim.org/entry/"+rowData.gene_mimNumber} target="_blank" rel="noopener noreferrer">{rowData.gene_symbols}</a>,                  
                   cellStyle: {
                     backgroundColor: '#c4deff'
                   },
                 },
                 { title: "Phenotype", field: "phenotype" },
-                { title: "GP association made in", field: "earliest_phenotype_association.year" },
-                { title: "Potential earliest matching patient", field: "earliest_cohort.publication_evidence.year"},
-                { title: "# of matching patients", field: "earliest_cohort.cohort_count"},
-                { title: "Potential earliest model organism study", field: "earliest_phenotype_specific_animal_model.publication_evidence.year" }
+                { title: "GP association made in", field: "evidence.publication_evidence.year" },
+                { title: "Potential earliest matching patient", field: "cohort.publication_evidence.year"},
+                { title: "# of matching patients", field: "cohort.cohort_count"},
+                { title: "Potential earliest model organism study", field: "animal_model.publication_evidence.year" }
                 ]}
                 data={items}
                 detailPanel={[
@@ -63,7 +63,7 @@ function ListView() {
                     tooltip: 'Show Detail',
                     render: rowData => { return(
                     <Grid container direction="row" justify="center" alignItems="center">
-                      <SearchResultView query={rowData.gene_mim_id} />
+                      <SearchResultView query={rowData.gene_mimNumber} />
                     </Grid>) }
                     // rowData => {
                     //   return (

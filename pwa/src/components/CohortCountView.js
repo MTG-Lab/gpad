@@ -68,7 +68,7 @@ export default function CohortCountView() {
     // this useEffect will run once
     // similar to componentDidMount()
     useEffect(() => {
-      fetch("http://206.12.96.161:5555/api/v1/cohorts")
+      fetch("http://localhost:5555/api/v1/cohorts")
         .then(res => res.json())
         .then(
           (result) => {

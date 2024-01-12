@@ -7,14 +7,22 @@ Copyright (c) 2021 Tahsin Hassan Rahit, MTG-lab, University of Calgary
 You should have received a copy of the license along with this program.
 '''
 
+from datetime import date, timedelta, datetime
+import re
 from time import sleep
 from unittest import result
 import pandas as pd
 import numpy as np
-from pathlib import Path
-import pprint
+from api.gene_discovery.data_curation import Curator
+import pendulum
+import logging
+
+import plotly.express as px
+
+from rich import print
 from tqdm import tqdm
-from api.gene_discovery.settings import db, data_dir
+from api.gene_discovery.models import AssociationInformation, GeneEntry, PubmedEntry
+from api.gene_discovery.settings import data_dir
 
 from Bio import Entrez
 
@@ -25,78 +33,280 @@ Entrez.email = "tahsin.rahit@gmail.com"
 # 3862 
 
 
-df = pd.read_csv(data_dir / 'Gene-RD-Provenance_V2.1.txt', sep='\t').dropna(subset=["ENSID"])
-chong_df = pd.read_csv(data_dir / '2022-11-11.combinedOMIM.mentionsNGS.year.inheritance.txt', sep='\t') # Chong et al (2015)
-df = df.fillna(0)
-query = {'mapping_key': {'$ne': 2}}
-entries = db.latest.find(query)
-df['Disease OMIM ID'] = [int(row['Disease OMIM ID']) for idx, row in df.iterrows()]
-df['PMID Gene-disease'] = [int(row['PMID Gene-disease']) for idx, row in df.iterrows()]
-
-result_array = []
-total_entries = db.latest.count_documents(query)
-i = 0
-
-result = {True: 0, False: 0, 'NA': 0, 'NOASSOC': 0}
-for entry in tqdm(entries, total=total_entries):
-    gene_entry = db.gene_entry.find_one({'mimNumber': entry['gene_mim_id']})
+class Validation:
     
-    # Detecting entry from chong 
-    chong = False
-    year = 0
-    chong_rows = chong_df[(chong_df['origMIMnum']==entry['phenotype_mim']) & (chong_df['geneMIMnum']==entry['gene_mim_id'])].fillna(0)
-    if len(chong_rows)>0:
-        chong = int(chong_rows['yearDiscovered'].values[0])
+    year_regex = r"\d{4}"
+    
+    def __init__(self) -> None:    
+        self.ehrhart_df = pd.read_csv(data_dir / 'Gene-RD-Provenance_V2.1.txt', sep='\t').dropna(subset=["ENSID"]).fillna(0) # Ehrhart et al (2021)
+        self.ehrhart_df['Disease OMIM ID'] = [int(row['Disease OMIM ID']) for idx, row in self.ehrhart_df.iterrows()]
+        self.ehrhart_df['PMID Gene-disease'] = [int(row['PMID Gene-disease']) for idx, row in self.ehrhart_df.iterrows()]
+        self.ehrhart_df['year'] = self.ehrhart_df.apply(self.__add_year_from_pubmed, axis=1)
         
-    ensemble_ids = []
-    if 'geneMap' in gene_entry and 'ensemblIDs' in gene_entry['geneMap']:
-        ensemble_ids = gene_entry['geneMap']['ensemblIDs'].split(',')
-    ehrhart_rows = df[(df['ENSID'].isin(ensemble_ids)) & (df['Disease OMIM ID']==entry['phenotype_mim'])]
+        self.chong_df = pd.read_csv(data_dir / '2022-11-11.combinedOMIM.mentionsNGS.year.inheritance.txt', sep='\t') # Chong et al (2015)
+        self.entries = AssociationInformation.objects   #(mapping_key=2)
+        # logging.debug(self.ehrhart_df)
+        self.result = pd.DataFrame()    # To store validated results
+        print(f"Total {len(self.entries)} confirmed associations will now be evaluated")
+        
+    def __add_year_from_pubmed(self, row):
+        """Add year column to Ehrhart's dataframe
+
+        Args:
+            row (_type_): PMID with column name `PMID Gene-disease` found in Ehrhart et al. (2015)
+
+        Returns:
+            _type_: year
+        """
+        if row['PMID Gene-disease']:
+            pe = PubmedEntry.objects(pmid=row['PMID Gene-disease']).first()
+            if pe == None:
+                logging.info(f"Sending Entrez request for PMID: {row['PMID Gene-disease']}")
+                pe = PubmedEntry()
+                handle = Entrez.esummary(db="pubmed", id=row['PMID Gene-disease'])
+                record = Entrez.read(handle)
+                handle.close()
+                pe.pmid = row['PMID Gene-disease']                
+                
+                pe.raw_pub_date = record[0]["PubDate"]
+                dt_match = re.match(Curator.pubmed_date_regex, record[0]["PubDate"])
+                try:
+                    if dt_match and dt_match.group(3):
+                        pe.pub_date =  datetime.strptime(dt_match.group(), "%Y %b %d")
+                    elif dt_match:
+                        pe.pub_date =  datetime.strptime(dt_match.group(), "%Y %b")
+                except ValueError as e:
+                    logging.exception(repr(e))
+                if dt_match:
+                    pe.pub_year = dt_match.group(1)
+                
+                if 'EPubDate' in record[0]:
+                    pe.raw_epub_date = record[0]["EPubDate"]
+                    epub_dt_match = re.match(Curator.pubmed_date_regex, record[0]["EPubDate"])                
+                    if epub_dt_match and epub_dt_match.group(3):
+                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b %d")
+                    elif epub_dt_match:
+                        pe.epub_date =  datetime.strptime(epub_dt_match.group(), "%Y %b")
+                
+                # yr_match = re.match(self.year_regex, record[0]["PubDate"])
+                # pe.pub_year = yr_match.group()
+                pe.save()
+            return pe.pub_year
+        return None
     
-    ehrhart = False
-    pmid = 'GPADUA'
-    year = 0
-    ehr_year = 'NA'
-    if 'earliest_phenotype_association' in entry and 'year' in entry['earliest_phenotype_association']:
-        year = entry['earliest_phenotype_association']['year']
-        if  'pmid' in entry['earliest_phenotype_association']:
-            pmid = entry['earliest_phenotype_association']['pmid']
+    def __add_chong(self, row):
+        chong = None
+        chong_rows = self.chong_df[(self.chong_df['origMIMnum']==row['pheno_mimNumber']) & (self.chong_df['geneMIMnum']==row['gene_mimNumber'])].fillna(0)
+        if len(chong_rows)>0:
+            chong = int(chong_rows['yearDiscovered'].values[0])
+        
+    def combine(self):
+        # entries = db.latest.find(query)
+        i = 0
+        result_arr = []
+        total_entries = len(self.entries)
+        result = {True: 0, False: 0, 'NA': 0, 'NOASSOC': 0}
+        chong_col_num = len(self.chong_df.columns)
+        for entry in tqdm(self.entries, total=total_entries, colour='blue'):
+            # if entry.evidence:
+            gene_entry = GeneEntry.objects(mimNumber=entry['gene_mimNumber']).first()
+            
+            pmid = False
+            year = False
+            ehrhart = []
+            ehr_year = []
+            chong = False
+            source = False
+            
+            # Detecting entry from chong             
+            chong_rows = self.chong_df[(self.chong_df['origMIMnum']==entry['pheno_mimNumber']) & (self.chong_df['geneMIMnum']==entry['gene_mimNumber'])].fillna(0)
+            chong_idx = -1
+            if len(chong_rows)>0:
+                chong = int(chong_rows['yearDiscovered'].values[0])
+                # chong_rows = np.array(chong_rows.values[0])
+                chong_idx = int(chong_rows.index[0])
+            # else:
+                # chong_rows = np.zeros((1,chong_col_num))
+                
+            ensemble_ids = []
+            if gene_entry and 'geneMap' in gene_entry and 'ensemblIDs' in gene_entry['geneMap']:
+                # logging.debug(gene_entry['geneMap']['ensemblIDs'])
+                ensemble_ids = gene_entry['geneMap']['ensemblIDs'].split(',')
+            # logging.debug(ensemble_ids)
+            ehrhart_rows = self.ehrhart_df[(self.ehrhart_df['ENSID'].isin(ensemble_ids)) & (self.ehrhart_df['Disease OMIM ID']==entry['pheno_mimNumber'])]
+            # logging.debug(ehrhart_rows)
+            
+            if 'evidence' in entry and 'publication_evidence' in entry['evidence']:
+                year = entry['evidence']['publication_evidence']['year']
+                source = entry.evidence.section_title
+                if  'pmid' in  entry['evidence']['publication_evidence']:
+                    pmid =  entry['evidence']['publication_evidence']['pmid']
+                else:
+                    pmid = 'NA'
+            
+            ehrhart = ehrhart_rows[ehrhart_rows['PMID Gene-disease']==pmid] # match pmid first
+            if ehrhart.empty:   # if not then match year
+                ehrhart = ehrhart_rows[ehrhart_rows['year']==year]
+            if ehrhart.empty:   # if still empty then match chong
+                ehrhart = ehrhart_rows[ehrhart_rows['year']==chong]
+            
+            if ehrhart.shape[0] > 0:
+                ehr_year = ehrhart['year'].values[0]
+                # ehr_year = ehrhart['PMID Gene-disease'].values[0]
+                result_arr.append([
+                    entry['gene_prefix'], entry['gene_mimNumber'], 
+                    entry['pheno_prefix'], entry['pheno_mimNumber'], 
+                    entry['mapping_key'], entry['phenotype'], 
+                    entry['gene_mimNumber'], entry['pheno_mimNumber'], 
+                    source, pmid, year, ehrhart['PMID Gene-disease'].values[0], 
+                    ehr_year, chong, chong_idx])
+            else:
+                result_arr.append([
+                    entry['gene_prefix'], entry['gene_mimNumber'], 
+                    entry['pheno_prefix'], entry['pheno_mimNumber'], 
+                    entry['mapping_key'], entry['phenotype'], 
+                    entry['gene_mimNumber'], entry['pheno_mimNumber'], 
+                    source, pmid, year, False, False, chong, chong_idx])
+
+        # logging.debug(result_arr)
+        self.result = pd.DataFrame(result_arr, columns=[
+                        'gene_prefix', 'gene_mimNumber',
+                        'pheno_prefix', 'pheno_mimNumber',
+                        'mapping_key', 'phenotype',
+                        'gene_mimNumber', 'pheno_mimNumber', 
+                        'source_section', 'gpad_pmid', 'gpad_year', 
+                        'ehrhart_pmid', 'ehrhart_year', 'chong_year', 'chong_idx'])
+        self.result.fillna(False, inplace=True)
+        self.result = self.result.merge(self.chong_df.fillna(False), how='outer', left_on=['chong_idx'], right_index=True)
+    
+    
+    def get_years(self):
+        # entries = db.latest.find(query)
+        i = 0
+        result_arr = []
+        total_entries = len(self.entries)
+        result = {True: 0, False: 0, 'NA': 0, 'NOASSOC': 0}
+        chong_col_num = len(self.chong_df.columns)
+        for entry in tqdm(self.entries, total=total_entries, colour='blue'):
+            if entry.evidence:
+                gene_entry = GeneEntry.objects(mimNumber=entry['gene_mimNumber']).first()
+                
+                pmid = False
+                year = False
+                ehrhart = []
+                ehr_year = []
+                chong = False
+                source = False
+                
+                # Detecting entry from chong             
+                chong_rows = self.chong_df[(self.chong_df['origMIMnum']==entry['pheno_mimNumber']) & (self.chong_df['geneMIMnum']==entry['gene_mimNumber'])].fillna(0)
+                chong_idx = -1
+                if len(chong_rows)>0:
+                    chong = int(chong_rows['yearDiscovered'].values[0])
+                    # chong_rows = np.array(chong_rows.values[0])
+                    chong_idx = int(chong_rows.index[0])
+                # else:
+                    # chong_rows = np.zeros((1,chong_col_num))
+                    
+                ensemble_ids = []
+                if gene_entry and 'geneMap' in gene_entry and 'ensemblIDs' in gene_entry['geneMap']:
+                    # logging.debug(gene_entry['geneMap']['ensemblIDs'])
+                    ensemble_ids = gene_entry['geneMap']['ensemblIDs'].split(',')
+                # logging.debug(ensemble_ids)
+                ehrhart_rows = self.ehrhart_df[(self.ehrhart_df['ENSID'].isin(ensemble_ids)) & (self.ehrhart_df['Disease OMIM ID']==entry['pheno_mimNumber'])]
+                # logging.debug(ehrhart_rows)
+                
+                if 'evidence' in entry and 'publication_evidence' in entry['evidence']:
+                    year = entry['evidence']['publication_evidence']['year']
+                    source = entry.evidence.section_title
+                    if  'pmid' in  entry['evidence']['publication_evidence']:
+                        pmid =  entry['evidence']['publication_evidence']['pmid']
+                    else:
+                        pmid = 'NA'
+                
+                ehrhart = ehrhart_rows[ehrhart_rows['PMID Gene-disease']==pmid] # match pmid first
+                if ehrhart.empty:   # if not then match year
+                    ehrhart = ehrhart_rows[ehrhart_rows['year']==year]
+                if ehrhart.empty:   # if still empty then match chong
+                    ehrhart = ehrhart_rows[ehrhart_rows['year']==chong]
+                
+                if ehrhart.shape[0] > 0:
+                    ehr_year = ehrhart['year'].values[0]
+                    # ehr_year = ehrhart['PMID Gene-disease'].values[0]
+                    result_arr.append([
+                        entry['gene_prefix'], entry['gene_mimNumber'], 
+                        entry['pheno_prefix'], entry['pheno_mimNumber'], 
+                        entry['mapping_key'], entry['phenotype'], 
+                        entry['gene_mimNumber'], entry['pheno_mimNumber'], 
+                        source, pmid, year, ehrhart['PMID Gene-disease'].values[0], 
+                        ehr_year, chong, chong_idx])
+                elif ehrhart_rows.shape[0] > 0:
+                    ehr_year = ehrhart_rows['year'].values[0]
+                    result_arr.append([
+                        entry['gene_prefix'], entry['gene_mimNumber'], 
+                        entry['pheno_prefix'], entry['pheno_mimNumber'], 
+                        entry['mapping_key'], entry['phenotype'], 
+                        entry['gene_mimNumber'], entry['pheno_mimNumber'], 
+                        source, pmid, year, ehrhart_rows['PMID Gene-disease'].values[0], ehr_year, chong, chong_idx])
+                else:
+                    result_arr.append([
+                        entry['gene_prefix'], entry['gene_mimNumber'], 
+                        entry['pheno_prefix'], entry['pheno_mimNumber'], 
+                        entry['mapping_key'], entry['phenotype'], 
+                        entry['gene_mimNumber'], entry['pheno_mimNumber'], 
+                        source, pmid, year, False, False, chong, chong_idx])
+
+        # logging.debug(result_arr)
+        self.result = pd.DataFrame(result_arr, columns=[
+                        'gene_prefix', 'gene_mimNumber',
+                        'pheno_prefix', 'pheno_mimNumber',
+                        'mapping_key', 'phenotype',
+                        'gene_mimNumber', 'pheno_mimNumber', 
+                        'source_section', 'gpad_pmid', 'gpad_year', 
+                        'ehrhart_pmid', 'ehrhart_year', 'chong_year', 'chong_idx'])
+        self.result.fillna(False, inplace=True)
+        self.result = self.result.merge(self.chong_df.fillna(False), how='outer', left_on=['chong_idx'], right_index=True)
+    
+    
+    def __match(self, row, col_a, col_b):
+        # logging.debug(col_a)
+        # return True
+        row.fillna(False, inplace=True)
+        if row[col_a] is False or row[col_a]==None:
+            return col_a + '_ua'
+        elif row[col_b] is False or row[col_b]==None:
+            return col_b + '_ua'
+        # logging.debug(row[col_a] == row[col_b])
+        # if row[col_a]==pd.NA or row[col_b]==pd.NA:
+        #     return 'NA'
+        return int(row[col_a]) == int(row[col_b])
+    
+    
+    def evaluate_match(self):
+        """Compare the years and add match column to the result
+        """
+        # logging.debug(self.result.apply(self.__match, axis=0, col_a='gpad_year', col_b='ehrhart_year'))
+        self.result['gpad_x_ehrhart'] = self.result.apply(self.__match, axis=1, col_a='gpad_year', col_b='ehrhart_year')
+        self.result['gpad_x_chong'] = self.result.apply(self.__match, axis=1, col_a='gpad_year', col_b='chong_year')
+        self.result['ehrhart_x_chong'] = self.result.apply(self.__match, axis=1, col_a='ehrhart_year', col_b='chong_year')       
+
+    # def 
+    
+    def save(self, as_excel=False):
+        """Save the evaluation as an excel file
+        """
+        if as_excel:
+            self.result.to_excel(data_dir / f"validation_{pendulum.now()}.xlsx", sheet_name="GPAD", index=False)
         else:
-            pmid = 'NA'
-    else:
-        ehrhart = 'NOASSOC' # No evidence available on GPAD
-    
-    if ehrhart != 'NOASSOC' and len(ehrhart_rows.index):
-        # Evidence available in ehrhart
-        for idx, row in ehrhart_rows.iterrows():
-            if row['PMID Gene-disease'] == pmid:
-                # match publication
-                if row['PMID Gene-disease']:
-                    handle = Entrez.esummary(db="pubmed", id=row['PMID Gene-disease'])
-                    record = Entrez.read(handle)
-                    handle.close()
-                    print(record[0]["PubDate"])
-                    ehr_year = record[0]["PubDate"]
-                result_array.append([entry['gene_mim_id'], entry['phenotype_mim'], pmid, year, row['PMID Gene-disease'], ehr_year, chong])
-                ehrhart = True
-                break
-    elif ehrhart == 'NOASSOC':
-        # Evidence not available on GPAD
-        result_array.append([entry['gene_mim_id'], entry['phenotype_mim'], pmid, year, len(ehrhart_rows.index) > 0, ehr_year, chong])
-    else:
-        # Evidence not available in Ehrhart
-        result_array.append([entry['gene_mim_id'], entry['phenotype_mim'], pmid, year, 'NA', ehr_year, chong])
-        ehrhart = 'NA'
-    if ehrhart == False:
-        # PMID does not match with ehrhart
-        result_array.append([entry['gene_mim_id'], entry['phenotype_mim'], pmid, year, False, ehr_year, chong])
-    result[ehrhart] += 1
-    sleep(0.1)
-result_df = pd.DataFrame(result_array)
-result_df.to_csv(data_dir / 'validation_v3.1.tsv', sep='\t', index=False)
-print(len(result_array))
-print(result)
-print(result[True]+result[False])
-print((100*result[True])/(result[True]+result[False]))
+            self.result.to_csv(data_dir / f"validation_{pendulum.now()}.tsv", sep='\t', index=False)
+        # print(result)
+        # print(f"Total Result: {len(self.result)}")        
+        # print(result[True]+result[False])
+        # print((100*result[True])/(result[True]+result[False]))
 
-        
+    def plot(self):
+        for col in ['gpad_x_ehrhart', 'gpad_x_chong', 'ehrhart_x_chong']:
+            pie_df = self.result.groupby([col])[col].count()
+            logging.debug(pie_df)
+            fig = px.pie(pie_df, values=col, names=col, title=col)
+            fig.write_image(data_dir/f"{col}_{pendulum.now()}.png")
