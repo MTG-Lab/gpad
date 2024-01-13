@@ -15,7 +15,7 @@ Explore GPAD on any modern internet browser! Whether you're on a PC, tablet, or 
    - Use the command: `git clone git@github.com:MTG-Lab/gpad.git`
 2. **Environment Setup**
    - Create a `.env` file using our `example.env` as a template.
-   - Replace values in the `.env` file with your own.
+   - Replace values in the `.env` file with your own. You do not have to change the `MONGO_URI` if you are using docker.
 3. **Build and Run with Docker**
    - Execute: `docker compose up -d`
 
