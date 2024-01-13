@@ -24,8 +24,8 @@ dotenv_path = project_dir / '.env'
 dotenv.load_dotenv(dotenv_path)
 
 OMIM_API_KEY = os.getenv("OMIM_API_KEY")
-OMIM_RESPONSE_LIMIT = 20    # OMIM limit 20 entries per request
-OMIM_DAILY_LIMIT = 250
+OMIM_RESPONSE_LIMIT = int(os.getenv("OMIM_RESPONSE_LIMIT", 20))    # OMIM limit 20 entries per request
+OMIM_DAILY_LIMIT = int(os.getenv("OMIM_DAILY_LIMIT", 250))
 NCBI_API_KEY = os.getenv("NCBI_API_KEY")
 
 log_fmt = "[%(asctime)s - %(levelname)s - %(filename)s:%(lineno)s - %(funcName)s() ] %(message)s"
@@ -44,4 +44,4 @@ MONGO_URI = os.getenv("MONGO_URI")
 # db = MongoClient(MONGO_URI)['gene_discovery']
 connect(host=MONGO_URI)
 
-Entrez.email = "tahsin.rahit@gmail.com"
+Entrez.email = os.getenv("NCBI_EMAIL")

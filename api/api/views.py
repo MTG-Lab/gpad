@@ -10,6 +10,7 @@ from marshmallow import ValidationError
 import json
 from pymongo import ASCENDING, DESCENDING
 from bson import json_util
+from api.gene_discovery.models import GeneEntry, AssociationInformation
 
 from api.extensions import apispec, db
 
@@ -28,11 +29,11 @@ class Search(Resource):
         _q = {'$text': { '$search': query }}
         if query.isnumeric():
             _q = {'mimNumber': int(query)}
-        omim_entry = db.db.omim_entry_AGG.find(_q, sort=[('dateUpdated', DESCENDING)])
+        omim_entry = db.db[GeneEntry._get_collection_name()].find(_q, sort=[('dateUpdated', DESCENDING)])
         if omim_entry:
             for oe in omim_entry:
                 logging.info(oe['mimNumber'])
-                gdas = db.db.association_information_test_2_AGG.find(
+                gdas = db.db[AssociationInformation._get_collection_name()].find(
                     {'$or': [
                         {'gene_mimNumber': oe['mimNumber']},
                         {'pheno_mimNumber': oe['mimNumber']}
@@ -52,13 +53,13 @@ class Search(Resource):
 class NewAssociations(Resource):
     def get(self, date_from):
         sort = [('evidence.publication_evidence.year', -1), ('gpad_updated', -1)]
-        recent_entries = db.db.association_information_test_2_AGG.find().sort(sort).limit(5)
+        recent_entries = db.db[AssociationInformation._get_collection_name()].find().sort(sort).limit(5)
         return json.loads(json.dumps(list(recent_entries), default=json_util.default))
 
 class Trend(Resource):
     def get(self):
         # logging.info('trend')
-        res = db.db.association_information_test_2_AGG.aggregate([
+        res = db.db[AssociationInformation._get_collection_name()].aggregate([
             {
                 '$group': {
                     '_id': '$_id', 
@@ -277,7 +278,7 @@ class ModelOrganismTrend(Resource):
                 }
             }
         ]
-        res = db.db.association_information_test_2_AGG.aggregate(pipeline)
+        res = db.db[AssociationInformation._get_collection_name()].aggregate(pipeline)
         mo = {
             'Yeast': ["saccharomyces cerevisiae", "s. cerevisiae", "yeast"], 
             'Pea Plant': ["pisum sativum", "Pea plant"], 
@@ -347,7 +348,7 @@ class ModelOrganismYearlyTrend(Resource):
                 }
             }
         ]
-        res = db.db.association_information_test_2_AGG.aggregate(pipeline)
+        res = db.db[AssociationInformation._get_collection_name()].aggregate(pipeline)
         mo = {
             'Yeast': ["saccharomyces cerevisiae", "s. cerevisiae", "yeast"], 
             'Pea Plant': ["pisum sativum", "Pea plant"], 
@@ -415,7 +416,7 @@ class CohortCount(Resource):
                 }
             }
         ]
-        res = db.db.association_information_test_2_AGG.aggregate(pipeline)
+        res = db.db[AssociationInformation._get_collection_name()].aggregate(pipeline)
         data = {"1": 0, "2-5": 0, '5-10': 0, '10+': 0}
         for entry in res:
             # logging.warning(entry['cohort_count'])

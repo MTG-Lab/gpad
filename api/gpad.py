@@ -119,24 +119,24 @@ def export():
 def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without updating database")):
     print(f"\n:robot:..GPAD Started..:robot:\n")
     
-    # # # Get GeneMap entries
+    # # Get GeneMap entries
     # all_mims = get_geneMaps()
     # print(f"Identify Associations [green]:heavy_check_mark:[/green]\n")
     # logging.info(all_mims)
     
-    # # Identify Entries to fetch
-    # mims_to_fetch = what_to_update()
-    # print(f"[bold red]{len(mims_to_fetch)}[/bold red] entries to be extracted from OMIM API.\n")
+    # Identify Entries to fetch
+    mims_to_fetch = what_to_update()
+    print(f"[bold red]{len(mims_to_fetch)}[/bold red] entries to be extracted from OMIM API.\n")
     
-    # # # Extract from OMIM API
-    # extracted = extract_gene_info(mims_to_fetch)
-    # print(f"[bold blue]{len(extracted)}[/bold blue] genes successfully extracted.\n")
+    # Extract from OMIM API
+    extracted = extract_gene_info(mims_to_fetch)
+    print(f"[bold blue]{len(extracted)}[/bold blue] genes successfully extracted.\n")
     
-    # # Apply NLP
+    # Apply NLP
     curation = Curator()
     # curation.curate([], detect='all', force_update=True, dry_run=dry_run)
-    curation.curate([603136], force_update=True, dry_run=True)
-    # curation.curate(extracted)
+    # curation.curate([603136], force_update=True, dry_run=True)
+    curation.curate(extracted)
     
     print(f":white_heavy_check_mark: DONE!")
 

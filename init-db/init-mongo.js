@@ -2,11 +2,11 @@
 db = db.getSiblingDB('gene_discovery');  // Create new database or connect to it if it already exists
 
 // Create collections
-db.createCollection("omim_entry_AGG");  // For saving OMIM entries
-db.createCollection("association_information_test_2_AGG");  // For saving association information after curation
+db.createCollection("omim_entry");  // For saving OMIM entries
+db.createCollection("association_information_test_2");  // For saving association information after curation
 
 // Create indexes for collections
-db.omim_entry_AGG.createIndex([
+db.omim_entry.createIndex([
     { v: 2, key: { _id: 1 }, name: '_id_' },
     {
       v: 2,
