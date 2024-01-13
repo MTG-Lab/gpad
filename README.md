@@ -13,6 +13,8 @@ Explore GPAD on any modern internet browser! Whether you're on a PC, tablet, or 
 ### Steps to Get Started:
 1. **Clone the Repository**
    - Use the command: `git clone git@github.com:MTG-Lab/gpad.git`
+2. **Go to the Directory**
+   - Navigate to the directory: `cd gpad`
 2. **Environment Setup**
    - Create a `.env` file using our `example.env` as a template.
    - Replace values in the `.env` file with your own. You do not have to change the `MONGO_URI` if you are using docker.
