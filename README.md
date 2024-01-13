@@ -1,20 +1,36 @@
-# GPAD
-An interactive web-basd tool for analyzing, interrogating, and visualizing the **Online Mendelian Inheritance in Man** [(OMIM)](https://www.ncbi.nlm.nih.gov/omim).
+# Gene-Phenotype Association Discovery (GPAD) 🧬🔍
+An interactive web-based tool for analyzing, interrogating, and visualizing the gene-disease association on **Online Mendelian Inheritance in Man** [(OMIM)](https://www.ncbi.nlm.nih.gov/omim).
 
-This tool runs on all modern internet browser applications and we encourge you to explore this tool on a PC, tablet, or mobile phone.
+Explore GPAD on any modern internet browser! Whether you're on a PC, tablet, or mobile phone, our platform is optimized for your convenience.
+
+## 🛠 Installation
+
+### Prerequisites
+- **OMIM API key**: Request yours from the OMIM team [here](https://www.omim.org/api).
+- **Docker**: GPAD runs in Docker containers, ensuring a consistent and isolated environment across different machines. [Download Docker](https://www.docker.com/get-started) if you haven't already. It's a powerful tool that packages applications and their dependencies into a single container that can run anywhere, streamlining deployment and testing.
 
 
-## Installation
-**Prerequisite**: Obtain OMIM API key by requesting OMIM team here: [https://www.omim.org/api](https://www.omim.org/api)
-1. Clone this repo to your local machine using `https://github.com/MTG-Lab/Shiny-OMIM`
-2. Create your own `.env` and . `.flaskenv` file using provided `example.env` for specifying environment variables. Replace values with your own.
-3. Build and run docker containers `docker compose up`
-4. Extract OMIM data `docker exec -it gpad_api make data-init`
+### Steps to Get Started:
+1. **Clone the Repository**
+   - Use the command: `git clone git@github.com:MTG-Lab/gpad.git`
+2. **Environment Setup**
+   - Create a `.env` file using our `example.env` as a template.
+   - Replace values in the `.env` file with your own.
+3. **Build and Run with Docker**
+   - Execute: `docker compose up -d`
 
-## Running
-Data backend prepares data in a 2 step process.
-1. Collect data using OMIM API and save it as it is in MongoDB collection using `gene_discovery/omim_api_extraction.py`
-   - To run these script - `python -m gene_discovery.omim_api_extraction --init` 
-     - Note that OMIM API limits 250 requests per day. Therefore you might need to work on the data for multiple days. Do not run the above command with `--init` flag. Because it will process data from the beggining. Instead run following: `python -m gene_discovery.omim_api_extraction` 
-2. Curate/process collected data according the the need using `gene_discovery/data_curation.py`
-   - To run these script - `python -m api.gpad omim`
+🚀 Post-setup, access the application at `http://localhost:3001`. Initially, you'll be greeted with a blank page as there's no data yet.
+
+### Populating Data
+GPAD leverages the OMIM API for textual data, which is then processed to extract relevant information. This is a breeze with just one command: 
+```bash
+docker exec -it gpad_api python -m api.gpad omim
+```
+⏳ The data population depends on your internet speed. Be patient!
+
+### 📌 Important Note
+OMIM API limits 250 requests per day. Because of that all associations/entries from OMIM will not be processed in a single day. Therefore, you might need to run the above command multiple times. However, it will not process the data that is already processed. It will start from where it left off.
+
+🔎 Once complete, you'll see the data come to life in the application!
+
+## 🌟 Enjoy exploring GPAD!
