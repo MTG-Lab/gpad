@@ -784,6 +784,15 @@ class Curator:
 
 
     def curate(self, mims_to_curate: list, force_update: bool = False, detect: str = 'all', dry_run: bool = False):
+        """Curate AssociationInformation entries to extract information from Entry objects
+
+        Args:
+            mims_to_curate (list): List of MIM numbers to curate. Defaults to []. If [] then all entries will be curated.
+            force_update (bool, optional): Update even if the entry is already curated. Defaults to False.
+            detect (str, optional): What modeule/groups of information to update. Defaults to 'all'. 
+                                    Available options: 'all', 'basic', 'association', 'animal', 'cohort'
+            dry_run (bool, optional): Run without saving it into database. Defaults to False.
+        """
         assocs = []
         if len(mims_to_curate):
             # entries = GeneEntry.objects(mimNumber__in=mims_to_curate)

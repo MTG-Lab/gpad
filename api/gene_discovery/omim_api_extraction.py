@@ -252,7 +252,11 @@ def extract_gene_info(genes_to_extract):
     """
     gene_count = len(genes_to_extract)
     extracted = []
-    for i in trange(int(math.ceil(gene_count/OMIM_RESPONSE_LIMIT)), desc='Getting Text from OMIM API'):
+    total_page = int(math.ceil(gene_count/OMIM_RESPONSE_LIMIT))
+    if total_page > OMIM_DAILY_LIMIT:
+        print(f"[orange]WARNING: Daily OMIM API request limit may exceed. Please  rerun the command tommorrow and it will safely resume.[/orange]")
+
+    for i in trange(total_page, desc='Getting Text from OMIM API'):
         # logging.info(f"Page {i}")
         omim_genes = genes_to_extract[i*OMIM_RESPONSE_LIMIT:(i+1)*OMIM_RESPONSE_LIMIT] 
         response = requests.get(
@@ -302,12 +306,14 @@ def extract_gene_info(genes_to_extract):
                 if assoc:
                     if assoc.gene_mimNumber == r['entry']['mimNumber']:
                         assoc.gene_entry_fetched = pendulum.now()
-                    elif assoc.gene_mimNumber == r['entry']['mimNumber']:
+                    elif assoc.pheno_mimNumber == r['entry']['mimNumber']:
                         assoc.pheno_entry_fetched = pendulum.now()                        
                     assoc.gpad_updated = pendulum.now()
                     assoc.save()
                 
                 extracted.append(int(r['entry']['mimNumber']))
         else:
+            if total_page > OMIM_DAILY_LIMIT:
+                print(f"[red]WARNING: Daily OMIM API request limit exceeded. Please  rerun the command tommorrow and it will safely resume.[/red]")
             return extracted
 
