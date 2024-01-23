@@ -42,18 +42,13 @@ services:
     ports:
       - "27017:27017"
 
-  mongo-express:
-    image: mongo-express
-    restart: always
-    ports:
-      - 8081:8081
-    
-  mongobi:
-    build:
-      context: .
-      dockerfile: Dockerfile-mongobi
-    environment:
-      MONGODB_HOST: host.docker.internal
-      MONGODB_PORT: 27018
-    ports:
-      - 3307:3307
+  # PowerBI integration service
+  # mongobi:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile-mongobi
+  #   environment:
+  #     MONGODB_HOST: host.docker.internal
+  #     MONGODB_PORT: 27018
+  #   ports:
+  #     - 3307:3307
