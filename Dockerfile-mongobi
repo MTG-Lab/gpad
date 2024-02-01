@@ -13,7 +13,7 @@ RUN curl https://info-mongodb-com.s3.amazonaws.com/mongodb-bi/v2/mongodb-bi-linu
 
 # Setup default environment variables
 ENV MONGODB_HOST host.docker.internal
-ENV MONGODB_PORT 27017
+ENV MONGODB_PORT 27019
 ENV LISTEN_PORT 3307
 
 # Start Everything

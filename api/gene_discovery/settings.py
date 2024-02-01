@@ -35,7 +35,7 @@ logging.basicConfig(filename=project_dir/'logs'/f"app{pendulum.now()}.log", file
 # connect(
 #     db = os.getenv("MONGO_DB", "gene_discovery"),
 #     host = os.getenv("MONGO_HOST", "localhost"),
-#     port = os.getenv("MONGO_PORT", 27017),
+#     port = os.getenv("MONGO_PORT", 27019),
 #     username = os.getenv("MONGO_USER", None),
 #     password = os.getenv("MONGO_PASS", None)
 # )

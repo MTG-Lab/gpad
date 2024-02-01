@@ -40,7 +40,7 @@ services:
       - ./init-db:/docker-entrypoint-initdb.d
       - ./db:/data/db
     ports:
-      - "27017:27017"
+      - "27019:27017"
 
   # PowerBI integration service
   # mongobi:
@@ -49,6 +49,6 @@ services:
   #     dockerfile: Dockerfile-mongobi
   #   environment:
   #     MONGODB_HOST: host.docker.internal
-  #     MONGODB_PORT: 27018
+  #     MONGODB_PORT: 27019
   #   ports:
   #     - 3307:3307

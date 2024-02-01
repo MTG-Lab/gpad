@@ -33,53 +33,7 @@ tpr = typer.Typer(pretty_exceptions_show_locals=False)
 import os
 from mongoengine import connect, disconnect
 
-@tpr.command()
-def lol():    
-    ent = AssociationInformation.objects
-    for e in tqdm(ent[:20]):
-        if 'evidence' in e:
-            if 'publication_evidence' in e.evidence:
-                if 'pmid' in e.evidence.publication_evidence:
-                    p = e.evidence.publication_evidence.pmid
-                    if p != None:
-                        d = Curator().pmid_to_date(pmid=p)
-        
 
-
-@tpr.command()
-def lab(save: bool = typer.Option(False, help="If TRUE, save the results to a file")):
-    logging.getLogger().setLevel(logging.INFO)
-
-    all_genes = AssociationInformation.objects().distinct(field='gene_mimNumber')
-    all_phenos = AssociationInformation.objects().distinct(field='pheno_mimNumber')
-    logging.info(f"Total Genes: {len(all_genes)}")
-    logging.info(f"Total Phenos: {len(all_phenos)}")
-
-    pl = PatternLab(pattern=["cohort_with_det","cohort_pattern"])
-    # entries = GeneEntry.objects(mimNumber__in=all_phenos[:100])
-    entries = GeneEntry.objects(mimNumber__in=[616576, 300438])
-    matches = {}
-    for entry in tqdm(entries):
-        # for allele in entry.allelicVariantList:
-        #     if 'text' in allele['allelicVariant']:
-        #             text = allele['allelicVariant']['text'].replace(
-        #                 '\n\n', ' ')
-        for text_section in entry.textSectionList:
-            if  text_section['textSection']['textSectionName'] == 'molecularGenetics':
-                text = text_section['textSection']['textSectionContent'].replace(
-                            '\n\n', ' ')
-                logging.debug(text)
-                logging.debug(entry.mimNumber)
-                # logging.debug(text)
-                # _matches = pl.vm(text)
-                pl.show(text)
-    #             _matches = pl.match(text)
-                
-    # for k, v in pl.text_variations.items():
-    #     logging.info(f"{k}: {set(v)}")
-
-    # if save:
-    #     pd.DataFrame.from_dict(pl.text_variations).to_csv(data_dir / 'text_variations_cohort_det.tsv', index=False, sep='\t')
     
 
 @tpr.command()
