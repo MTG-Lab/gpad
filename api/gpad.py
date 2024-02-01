@@ -73,9 +73,9 @@ def export():
 def omim(dry_run: bool = typer.Option(False, help="If TRUE, run analysis without updating database")):
     print(f"\n:robot:..GPAD Started..:robot:\n")
     
-    # # Get GeneMap entries
-    # all_mims = get_geneMaps()
-    # print(f"Identify Associations [green]:heavy_check_mark:[/green]\n")
+    # Get GeneMap entries
+    all_mims = get_geneMaps()
+    print(f"Identify Associations [green]:heavy_check_mark:[/green]\n")
     # logging.info(all_mims)
     
     # Identify Entries to fetch
