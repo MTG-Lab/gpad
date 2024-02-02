@@ -35,7 +35,6 @@ services:
 
   mongo:
     image: mongo:5.0
-    container_name: gpad_mongo
     restart: always
     volumes:
       - ./init-db:/docker-entrypoint-initdb.d
