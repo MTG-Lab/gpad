@@ -5,6 +5,13 @@ Explore GPAD on any modern internet browser! Whether you're on a PC, tablet, or 
 
 ## 🛠 Installation
 
+[![GPAD installation](https://i.ytimg.com/vi/96RzCY-91Is/hqdefault.jpg)](https://youtu.be/96RzCY-91Is?si=Xd8EDn9u91MyLJEg)
+
+https://youtu.be/96RzCY-91Is?si=Xd8EDn9u91MyLJEg
+
+▶️ **Watch the video above** for a visual guide on setting up GPAD based on the bellow steps.
+
+
 ### Prerequisites
 - **OMIM API key**: Request yours from the OMIM team [here](https://www.omim.org/api).
 - **Docker**: GPAD runs in Docker containers, ensuring a consistent and isolated environment across different machines. [Download Docker](https://www.docker.com/get-started) if you haven't already. It's a powerful tool that packages applications and their dependencies into a single container that can run anywhere, streamlining deployment and testing.
@@ -19,7 +26,7 @@ Explore GPAD on any modern internet browser! Whether you're on a PC, tablet, or 
    - Create a `.env` file using our `example.env` as a template.
    - Replace values in the `.env` file with your own. You do not have to change the `MONGO_URI` if you are using docker.
 3. **Build and Run with Docker**
-   - Execute: `docker compose up -d`
+   - Execute: `docker compose up -d` (use `sudo` if necessary/running on Linux)
 
 🚀 Post-setup, access the application at `http://localhost:3001`. Initially, you'll be greeted with a blank page as there's no data yet.
 
@@ -28,6 +35,7 @@ GPAD leverages the OMIM API for textual data, which is then processed to extract
 ```bash
 docker exec -it gpad_api python -m api.gpad omim
 ```
+(Use `sudo` if necessary/running on Linux)
 ⏳ The data population depends on your internet speed. Be patient!
 
 ### 📌 Important Note
