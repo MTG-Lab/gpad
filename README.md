@@ -44,3 +44,10 @@ OMIM API limits 250 requests per day. Because of that all associations/entries f
 🔎 Once complete, you'll see the data come to life in the application!
 
 ## 🌟 Enjoy exploring GPAD!
+
+
+-----
+
+
+## 🐛 Bugs and ❗issues
+If you face issues, we kindly request you to submit a issue [here](https://github.com/MTG-Lab/gpad/issues). This will allow us to gather more information about the user’s specific system, environment and setup, enabling us to diagnose and resolve the problem effectively.
