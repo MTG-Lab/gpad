@@ -3,6 +3,14 @@ An interactive web-based tool for analyzing, interrogating, and visualizing the 
 
 Explore GPAD on any modern internet browser! Whether you're on a PC, tablet, or mobile phone, our platform is optimized for your convenience.
 
+📜 Read the paper! 
+
+> Rahit, K.M.T.H., Avramovic, V., Chong, J.X. et al. GPAD: a natural language processing-based application to extract the gene-disease association discovery information from OMIM. BMC Bioinformatics 25, 84 (2024). https://doi.org/10.1186/s12859-024-05693-x
+
+The paper presents the technical details with the analysis done on the GPAD extracted data.
+
+
+
 ## 🛠 Installation
 
 [![GPAD installation](https://i.ytimg.com/vi/96RzCY-91Is/hqdefault.jpg)](https://youtu.be/96RzCY-91Is?si=Xd8EDn9u91MyLJEg)
